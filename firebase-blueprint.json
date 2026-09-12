@@ -1,0 +1,64 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Akun nasabah dan profil pengelola platform emas IndoGold",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "nama": { "type": "string" },
+        "email": { "type": "string" },
+        "sandi": { "type": "string" },
+        "saldo": { "type": "number", "description": "Saldo kas rupiah riil nasabah" },
+        "saldoEmas": { "type": "number", "description": "Total gram emas nasabah" },
+        "kodeRef": { "type": "string" },
+        "dirujukOleh": { "type": "string" },
+        "isAdmin": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "terakhirKlaimDividen": { "type": "string" }
+      },
+      "required": ["uid", "nama", "email", "saldo", "saldoEmas"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Data transaksi riil setoran kas, penarikan, dan jual beli emas",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userNama": { "type": "string" },
+        "jenis": {
+          "type": "string",
+          "enum": ["deposit", "tarik", "beli_emas", "jual_emas", "dividen_harian", "bonus_referral"]
+        },
+        "jumlah": { "type": "number" },
+        "gram": { "type": "number" },
+        "brand": { "type": "string" },
+        "hargaPerGram": { "type": "number" },
+        "metode": { "type": "string" },
+        "namaPengirim": { "type": "string" },
+        "nomorPengirim": { "type": "string" },
+        "namaTujuan": { "type": "string" },
+        "nomorTujuan": { "type": "string" },
+        "buktiFoto": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["menunggu", "berhasil", "ditolak"]
+        },
+        "waktu": { "type": "string" },
+        "catatan": { "type": "string" }
+      },
+      "required": ["id", "userId", "jenis", "jumlah", "status", "waktu"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Koleksi akun nasabah dan data aset tersimpan"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Koleksi riwayat transaksi setor, tarik, dan beli/jual emas"
+    }
+  }
+}
