@@ -74,6 +74,7 @@ interface GoldContextType {
   adminApproveTransaction: (trxId: string) => Promise<{ success: boolean; message: string }>;
   adminRejectTransaction: (trxId: string, alasan?: string) => Promise<{ success: boolean; message: string }>;
   adminAdjustBalance: (uid: string, delta: number, note?: string) => Promise<{ success: boolean; message: string }>;
+  adminAdjustGold: (uid: string, brandId: GoldBrandId, deltaGram: number, note?: string) => Promise<{ success: boolean; message: string }>;
   adminSetPrice: (newPrice: number) => void;
   togglePriceFluctuation: () => void;
   isPriceFluctuating: boolean;
@@ -1037,6 +1038,84 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return { success: true, message: 'Saldo disesuaikan' };
   };
 
+  // Admin: Adjust Gold Balance for specific brand
+  const adminAdjustGold = async (
+    uid: string,
+    brandId: GoldBrandId,
+    deltaGram: number,
+    note?: string
+  ): Promise<{ success: boolean; message: string }> => {
+    const targetUser = allUsers.find((u) => u.uid === uid);
+    if (!targetUser) return { success: false, message: 'Pengguna tidak ditemukan' };
+    if (!deltaGram || deltaGram === 0) return { success: false, message: 'Jumlah gram tidak boleh 0' };
+
+    const brand = getBrandInfo(brandId);
+    const updatedEmas = [...targetUser.emas];
+    const existingIndex = updatedEmas.findIndex((e) => e.jenis === brandId);
+
+    if (existingIndex >= 0) {
+      const currentGram = updatedEmas[existingIndex].gram;
+      const newGram = Math.max(0, currentGram + deltaGram);
+      if (newGram <= 0.0001) {
+        updatedEmas.splice(existingIndex, 1);
+      } else {
+        updatedEmas[existingIndex] = {
+          ...updatedEmas[existingIndex],
+          gram: Number(newGram.toFixed(4))
+        };
+      }
+    } else if (deltaGram > 0) {
+      updatedEmas.push({
+        jenis: brandId,
+        gram: Number(deltaGram.toFixed(4)),
+        rataRataBeli: hargaDasar + brand.marjinalBeli
+      });
+    } else {
+      return { success: false, message: 'Nasabah belum memiliki emas jenis ini untuk dikurangi' };
+    }
+
+    const adjTrx: Transaction = {
+      id: generateId('ADJ-G'),
+      uid,
+      namaUser: targetUser.nama,
+      emailUser: targetUser.email,
+      teks: `⚖️ Penyesuaian Saldo Emas oleh Admin: ${deltaGram > 0 ? '+' : ''}${deltaGram.toFixed(2)} gr ${brand.nama}${
+        note ? ` (${note})` : ''
+      }`,
+      jumlah: Math.round(Math.abs(deltaGram) * (hargaDasar + brand.marjinalBeli)),
+      jenis: 'bonus',
+      status: 'disetujui',
+      waktu: new Date().toISOString(),
+      detail: {
+        jenisEmas: brandId,
+        gram: Math.abs(deltaGram),
+        hargaPerGram: hargaDasar + brand.marjinalBeli
+      }
+    };
+
+    try {
+      await updateDoc(doc(db, 'users', uid), { emas: updatedEmas });
+      await setDoc(doc(db, 'transactions', adjTrx.id), adjTrx);
+    } catch (err) {
+      console.warn('Firestore adjust gold error:', err);
+    }
+
+    setAllUsers((prev) => {
+      const updated = prev.map((u) => (u.uid === uid ? { ...u, emas: updatedEmas } : u));
+      try {
+        localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    setTransactions((prev) => [adjTrx, ...prev]);
+
+    showToast(
+      `Saldo emas ${targetUser.nama} berhasil disesuaikan (${deltaGram > 0 ? '+' : ''}${deltaGram.toFixed(2)} gr ${brand.nama})!`,
+      'success'
+    );
+    return { success: true, message: 'Saldo emas disesuaikan' };
+  };
+
   // Admin: Set Price
   const adminSetPrice = (newPrice: number) => {
     setHargaDasar(newPrice);
@@ -1194,6 +1273,7 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         adminApproveTransaction,
         adminRejectTransaction,
         adminAdjustBalance,
+        adminAdjustGold,
         adminSetPrice,
         togglePriceFluctuation,
         isPriceFluctuating,

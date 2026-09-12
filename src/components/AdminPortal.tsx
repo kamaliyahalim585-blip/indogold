@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useGold } from '../context/GoldContext';
 import { formatRupiah, formatDateTime, formatGrams } from '../utils/formatters';
+import { GoldBrandId, UserAccount } from '../types/gold';
 import {
   ShieldCheck,
   Check,
@@ -27,7 +28,14 @@ import {
   Building2,
   FileText,
   Activity,
-  MessageSquare
+  MessageSquare,
+  Copy,
+  Coins,
+  History,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Filter
 } from 'lucide-react';
 import { ReceiptModal } from './ReceiptModal';
 import { AdminLiveChat } from './AdminLiveChat';
@@ -47,11 +55,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToUserApp }) => 
     adminApproveTransaction,
     adminRejectTransaction,
     adminAdjustBalance,
+    adminAdjustGold,
     adminSetPrice,
     togglePriceFluctuation,
     isPriceFluctuating,
     hitungTotalNilaiEmas,
     hitungTotalGramEmas,
+    getBrandInfo,
     login,
     switchUser,
     logout,
@@ -69,13 +79,27 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToUserApp }) => 
   const [activeTab, setActiveTab] = useState<'deposit' | 'tarik' | 'users' | 'market' | 'logs' | 'chat'>('deposit');
   const [selectedReceipt, setSelectedReceipt] = useState<{ url: string; title: string } | null>(null);
 
-  // Balance adjustment modal state
+  // User detail inspection modal
+  const [selectedUserForDetail, setSelectedUserForDetail] = useState<UserAccount | null>(null);
+
+  // Active chat user selection when jumping from user card or transaction
+  const [activeChatUserId, setActiveChatUserId] = useState<string | null>(null);
+
+  // Balance & Gold adjustment modal state
   const [adjustModalUser, setAdjustModalUser] = useState<string | null>(null);
+  const [adjustType, setAdjustType] = useState<'cash' | 'gold'>('cash');
   const [adjustAmount, setAdjustAmount] = useState<string>('500000');
+  const [adjustGoldBrand, setAdjustGoldBrand] = useState<GoldBrandId>('ANTAM');
+  const [adjustGoldGrams, setAdjustGoldGrams] = useState<string>('1.0');
   const [adjustNote, setAdjustNote] = useState<string>('Penyesuaian saldo admin');
 
   // Search in user list
   const [userSearchQuery, setUserSearchQuery] = useState('');
+
+  // Logs filters
+  const [logTypeFilter, setLogTypeFilter] = useState<'all' | 'deposit' | 'tarik' | 'beli' | 'jual' | 'untung' | 'bonus'>('all');
+  const [logStatusFilter, setLogStatusFilter] = useState<'all' | 'menunggu' | 'disetujui' | 'ditolak'>('all');
+  const [logSearchQuery, setLogSearchQuery] = useState('');
 
   // Market manual price state
   const [customPrice, setCustomPrice] = useState<string>(hargaDasar.toString());
@@ -107,13 +131,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToUserApp }) => 
     }
   };
 
-  const handleAdjustSubmit = (e: React.FormEvent) => {
+  const handleAdjustSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!adjustModalUser) return;
-    const val = parseFloat(adjustAmount) || 0;
-    if (val === 0) return;
 
-    adminAdjustBalance(adjustModalUser, val, adjustNote);
+    if (adjustType === 'cash') {
+      const val = parseFloat(adjustAmount) || 0;
+      if (val === 0) return;
+      await adminAdjustBalance(adjustModalUser, val, adjustNote);
+    } else {
+      const grams = parseFloat(adjustGoldGrams) || 0;
+      if (grams === 0) return;
+      await adminAdjustGold(adjustModalUser, adjustGoldBrand, grams, adjustNote);
+    }
     setAdjustModalUser(null);
   };
 
@@ -271,67 +301,420 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToUserApp }) => 
         onClose={() => setSelectedReceipt(null)}
       />
 
-      {/* Adjust balance modal */}
-      {adjustModalUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="bg-[#12151f] border border-[#272f42] rounded-3xl p-5 max-w-sm w-full space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <h4 className="text-sm font-bold text-white">Penyesuaian Saldo Kas</h4>
-              <button
-                onClick={() => setAdjustModalUser(null)}
-                className="text-slate-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAdjustSubmit} className="space-y-3">
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">
-                  Nominal Tambah/Kurang (Rp):
-                </label>
-                <input
-                  type="number"
-                  value={adjustAmount}
-                  onChange={(e) => setAdjustAmount(e.target.value)}
-                  placeholder="500000"
-                  className="w-full bg-[#0a0c10] border border-[#262c3e] rounded-xl px-3 py-2 text-sm text-white font-bold outline-none focus:border-[#ffd700]"
-                />
-                <span className="text-[10px] text-slate-500 mt-0.5 block">
-                  *Gunakan tanda minus (-) untuk memotong saldo nasabah
-                </span>
+      {/* Adjust balance & gold modal */}
+      {adjustModalUser && (() => {
+        const targetUsr = allUsers.find((u) => u.uid === adjustModalUser);
+        const userGoldGrams = targetUsr ? hitungTotalGramEmas(targetUsr) : 0;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+            <div className="bg-[#12151f] border border-[#272f42] rounded-3xl p-5 max-w-md w-full space-y-4 shadow-2xl">
+              <div className="flex items-center justify-between border-b border-[#212838] pb-3">
+                <div>
+                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Sliders className="w-4 h-4 text-[#ffd700]" />
+                    <span>Penyesuaian Saldo Akun Nasabah</span>
+                  </h4>
+                  {targetUsr && (
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      {targetUsr.nama} ({targetUsr.email})
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={() => setAdjustModalUser(null)}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/10"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
 
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Keterangan / Catatan:</label>
-                <input
-                  type="text"
-                  value={adjustNote}
-                  onChange={(e) => setAdjustNote(e.target.value)}
-                  placeholder="Contoh: Bonus promo khusus"
-                  className="w-full bg-[#0a0c10] border border-[#262c3e] rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-[#ffd700]"
-                />
-              </div>
+              {/* Current Balances Preview */}
+              {targetUsr && (
+                <div className="grid grid-cols-2 gap-2 bg-[#090b10] p-3 rounded-2xl border border-[#202535]">
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">Saldo Kas Saat Ini:</span>
+                    <span className="text-xs font-black text-emerald-400 font-mono">
+                      {formatRupiah(targetUsr.saldo)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block">Total Emas Saat Ini:</span>
+                    <span className="text-xs font-black text-[#ffd700] font-mono">
+                      {userGoldGrams.toFixed(2)} gr
+                    </span>
+                  </div>
+                </div>
+              )}
 
-              <div className="flex gap-2 pt-2">
+              {/* Tabs: Saldo Kas vs Saldo Emas */}
+              <div className="grid grid-cols-2 gap-1 bg-[#090b10] p-1 rounded-xl border border-[#202535]">
                 <button
                   type="button"
-                  onClick={() => setAdjustModalUser(null)}
-                  className="flex-1 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold"
+                  onClick={() => setAdjustType('cash')}
+                  className={`py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                    adjustType === 'cash'
+                      ? 'bg-emerald-500 text-black shadow-md'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
                 >
-                  Batal
+                  <DollarSign className="w-3.5 h-3.5" />
+                  <span>Saldo Kas (Rp)</span>
                 </button>
                 <button
-                  type="submit"
-                  className="flex-1 py-2 rounded-xl bg-[#ffd700] text-black text-xs font-bold hover:bg-[#e6c200]"
+                  type="button"
+                  onClick={() => setAdjustType('gold')}
+                  className={`py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                    adjustType === 'gold'
+                      ? 'bg-[#ffd700] text-black shadow-md'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
                 >
-                  Simpan Perubahan
+                  <Coins className="w-3.5 h-3.5" />
+                  <span>Saldo Emas (Gram)</span>
                 </button>
               </div>
-            </form>
+
+              <form onSubmit={handleAdjustSubmit} className="space-y-3">
+                {adjustType === 'cash' ? (
+                  <div className="space-y-2">
+                    <label className="text-xs text-slate-300 block font-semibold">
+                      Nominal Tambah / Kurang (Rp):
+                    </label>
+                    <input
+                      type="number"
+                      value={adjustAmount}
+                      onChange={(e) => setAdjustAmount(e.target.value)}
+                      placeholder="500000"
+                      className="w-full bg-[#0a0c10] border border-[#262c3e] rounded-xl px-3 py-2.5 text-sm text-white font-bold outline-none focus:border-emerald-400"
+                      required
+                    />
+                    {/* Quick presets */}
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {[
+                        { label: '+50rb', val: 50000 },
+                        { label: '+100rb', val: 100000 },
+                        { label: '+250rb', val: 250000 },
+                        { label: '+500rb', val: 500000 },
+                        { label: '-50rb', val: -50000 },
+                        { label: '-100rb', val: -100000 }
+                      ].map((p) => (
+                        <button
+                          key={p.label}
+                          type="button"
+                          onClick={() => setAdjustAmount(p.val.toString())}
+                          className={`text-[10px] px-2 py-1 rounded-lg border font-bold transition-colors ${
+                            p.val > 0
+                              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
+                              : 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20'
+                          }`}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                    <span className="text-[10px] text-slate-400 mt-1 block">
+                      *Gunakan tanda minus (-) untuk memotong saldo kas nasabah.
+                    </span>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <label className="text-xs text-slate-300 block font-semibold">
+                      Pilih Merk & Jenis Emas:
+                    </label>
+                    <select
+                      value={adjustGoldBrand}
+                      onChange={(e) => setAdjustGoldBrand(e.target.value as GoldBrandId)}
+                      className="w-full bg-[#0a0c10] border border-[#262c3e] rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-[#ffd700]"
+                    >
+                      <option value="ANTAM">Antam CertiCard 99.99%</option>
+                      <option value="UBS">UBS Gold 99.99%</option>
+                      <option value="PAMP">PAMP Suisse Lady Fortuna</option>
+                      <option value="GALERI24">Galeri 24 Pegadaian</option>
+                      <option value="LOTUS">Lotus Archi</option>
+                      <option value="HARTADINATA">Hartadinata Gold</option>
+                    </select>
+
+                    <label className="text-xs text-slate-300 block font-semibold pt-1">
+                      Jumlah Gram (+ atau -):
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={adjustGoldGrams}
+                      onChange={(e) => setAdjustGoldGrams(e.target.value)}
+                      placeholder="1.0"
+                      className="w-full bg-[#0a0c10] border border-[#262c3e] rounded-xl px-3 py-2.5 text-sm text-white font-bold outline-none focus:border-[#ffd700]"
+                      required
+                    />
+                    {/* Quick gram presets */}
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {[
+                        { label: '+0.5 gr', val: 0.5 },
+                        { label: '+1.0 gr', val: 1.0 },
+                        { label: '+2.0 gr', val: 2.0 },
+                        { label: '+5.0 gr', val: 5.0 },
+                        { label: '-0.5 gr', val: -0.5 },
+                        { label: '-1.0 gr', val: -1.0 }
+                      ].map((p) => (
+                        <button
+                          key={p.label}
+                          type="button"
+                          onClick={() => setAdjustGoldGrams(p.val.toString())}
+                          className={`text-[10px] px-2 py-1 rounded-lg border font-bold transition-colors ${
+                            p.val > 0
+                              ? 'bg-amber-500/10 text-[#ffd700] border-amber-500/30 hover:bg-amber-500/20'
+                              : 'bg-rose-500/10 text-rose-400 border-rose-500/30 hover:bg-rose-500/20'
+                          }`}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-xs text-slate-300 block mb-1 font-semibold">
+                    Keterangan / Alasan Penyesuaian:
+                  </label>
+                  <input
+                    type="text"
+                    value={adjustNote}
+                    onChange={(e) => setAdjustNote(e.target.value)}
+                    placeholder="Contoh: Bonus promo khusus / Koreksi saldo"
+                    className="w-full bg-[#0a0c10] border border-[#262c3e] rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-[#ffd700]"
+                    required
+                  />
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setAdjustModalUser(null)}
+                    className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 text-black text-xs font-extrabold hover:opacity-95 transition-opacity shadow-md"
+                  >
+                    Terapkan Perubahan
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
+
+      {/* Customer Detail Inspection Modal */}
+      {selectedUserForDetail && (() => {
+        const usr = selectedUserForDetail;
+        const usrTransactions = transactions.filter((t) => t.uid === usr.uid);
+        const usrGoldGrams = hitungTotalGramEmas(usr);
+        const usrGoldValue = hitungTotalNilaiEmas(usr);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+            <div className="bg-[#12151f] border border-[#272f42] rounded-3xl p-5 sm:p-6 max-w-xl w-full max-h-[90vh] overflow-y-auto space-y-4 shadow-2xl">
+              {/* Modal Header */}
+              <div className="flex items-start justify-between border-b border-[#212838] pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-amber-600 via-[#ffd700] to-yellow-200 text-black font-black text-base flex items-center justify-center shadow-md">
+                    {usr.nama.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-base font-bold text-white">{usr.nama}</h4>
+                      {usr.isAdmin ? (
+                        <span className="text-[9px] font-black px-2 py-0.5 bg-amber-500/20 text-[#ffd700] rounded-full border border-amber-500/30">
+                          ADMIN
+                        </span>
+                      ) : (
+                        <span className="text-[9px] font-black px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full border border-emerald-500/30">
+                          NASABAH AKTIF
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-400">{usr.email}</p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setSelectedUserForDetail(null)}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/10"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Account Identification Data */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-[#090b10] p-3 rounded-2xl border border-[#202535] text-xs">
+                <div>
+                  <span className="text-[10px] text-slate-400 block">UID Akun:</span>
+                  <div className="font-mono text-slate-200 font-bold flex items-center gap-1">
+                    <span className="truncate">{usr.uid}</span>
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 block">Terdaftar Pada:</span>
+                  <span className="text-slate-200 font-bold block">{formatDateTime(usr.daftarPada)}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 block">Kode Referral:</span>
+                  <span className="font-mono text-[#ffd700] font-bold block">{usr.kodeRef}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 block">Sponsor / Pengundang:</span>
+                  <span className="text-slate-200 font-bold block">{usr.dirujukOleh || 'Organik (Tanpa Sponsor)'}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 block">Dividen Terakhir:</span>
+                  <span className="text-slate-200 font-bold block">{usr.terakhirKeuntungan || 'Belum pernah klaim'}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 block">Total Aktivitas Transaksi:</span>
+                  <span className="text-slate-200 font-bold block">{usrTransactions.length} mutasi</span>
+                </div>
+              </div>
+
+              {/* Balance Summary */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3.5 rounded-2xl bg-[#090b10] border border-emerald-500/20">
+                  <span className="text-[10px] text-slate-400 block font-semibold">Saldo Kas Riil</span>
+                  <div className="text-lg font-black text-emerald-400 font-mono mt-0.5">
+                    {formatRupiah(usr.saldo)}
+                  </div>
+                </div>
+                <div className="p-3.5 rounded-2xl bg-[#090b10] border border-amber-500/20">
+                  <span className="text-[10px] text-slate-400 block font-semibold">Total Portofolio Emas</span>
+                  <div className="text-lg font-black text-[#ffd700] font-mono mt-0.5">
+                    {usrGoldGrams.toFixed(2)} gr
+                  </div>
+                  <span className="text-[10px] text-slate-400 font-mono mt-0.5 block">
+                    ≈ {formatRupiah(usrGoldValue)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Gold Holdings Breakdown */}
+              <div className="space-y-1.5">
+                <span className="text-xs font-bold text-white block">Rincian Simpanan Emas Fisik:</span>
+                {usr.emas.length === 0 ? (
+                  <div className="p-3 rounded-2xl bg-[#090b10] border border-[#202535] text-xs text-slate-400 text-center">
+                    Nasabah belum memiliki simpanan emas fisik saat ini.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    {usr.emas.map((item) => {
+                      const brand = getBrandInfo(item.jenis);
+                      return (
+                        <div
+                          key={item.jenis}
+                          className="p-2.5 rounded-xl bg-[#090b10] border border-[#202535] flex items-center justify-between"
+                        >
+                          <div>
+                            <span className="text-xs font-bold text-white block">
+                              {brand.flag} {brand.nama}
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              Rata-rata: {formatRupiah(item.rataRataBeli)}/g
+                            </span>
+                          </div>
+                          <span className="text-xs font-black text-[#ffd700] font-mono">
+                            {item.gram.toFixed(2)} gr
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Recent Transactions of This Customer */}
+              <div className="space-y-1.5">
+                <span className="text-xs font-bold text-white block">
+                  Riwayat Aktivitas & Transaksi Nasabah Ini ({usrTransactions.length}):
+                </span>
+                <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                  {usrTransactions.length === 0 ? (
+                    <div className="p-3 rounded-2xl bg-[#090b10] border border-[#202535] text-xs text-slate-400 text-center">
+                      Belum ada mutasi transaksi untuk nasabah ini.
+                    </div>
+                  ) : (
+                    usrTransactions.map((trx) => (
+                      <div
+                        key={trx.id}
+                        className="p-2.5 rounded-xl bg-[#090b10] border border-[#202535] flex items-center justify-between text-xs"
+                      >
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono text-[10px] text-slate-400">{trx.id}</span>
+                            <span className="text-[10px] uppercase font-bold text-[#ffd700]">
+                              {trx.jenis}
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                              {formatDateTime(trx.waktu)}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-300 mt-0.5 line-clamp-1">
+                            {trx.teks}
+                          </div>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <span className="font-mono font-bold text-white block">
+                            {formatRupiah(trx.jumlah)}
+                          </span>
+                          <span
+                            className={`text-[9px] font-black uppercase px-1.5 py-0.2 rounded-full ${
+                              trx.status === 'disetujui'
+                                ? 'bg-emerald-500/15 text-emerald-400'
+                                : trx.status === 'menunggu'
+                                ? 'bg-amber-500/15 text-[#ffd700]'
+                                : 'bg-rose-500/15 text-rose-400'
+                            }`}
+                          >
+                            {trx.status}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Quick Actions Footer */}
+              <div className="flex gap-2 pt-2 border-t border-[#212838]">
+                <button
+                  onClick={() => {
+                    setSelectedUserForDetail(null);
+                    setAdjustModalUser(usr.uid);
+                    setAdjustType('cash');
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-[#ffd700] border border-amber-500/30 text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>Ubah Saldo Nasabah</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setSelectedUserForDetail(null);
+                    setActiveChatUserId(usr.uid);
+                    setActiveTab('chat');
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 text-black text-xs font-extrabold hover:opacity-95 transition-opacity flex items-center justify-center gap-1.5"
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  <span>Buka Live Chat</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Standalone Admin Top Navigation Bar */}
       <header className="sticky top-0 z-40 bg-[#0d1017]/95 backdrop-blur-md border-b border-[#212738] px-4 sm:px-6 py-3.5 shadow-xl">
@@ -828,88 +1211,205 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToUserApp }) => 
         {/* ================================================================= */}
         {/* TAB 3: USER MANAGEMENT & BALANCE ADJUSTMENT */}
         {/* ================================================================= */}
-        {activeTab === 'users' && (
-          <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#0f121a] p-4 rounded-2xl border border-[#212738]">
-              <div>
-                <h3 className="text-sm font-bold text-white">Daftar Nasabah & Saldo Akun</h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Pantau saldo kas, saldo emas, dan berikan penyesuaian/bonus saldo kepada nasabah.
-                </p>
-              </div>
+        {activeTab === 'users' && (() => {
+          const totalKasBeredar = allUsers.reduce((sum, u) => sum + (u.saldo || 0), 0);
+          const totalGramEmas = allUsers.reduce((sum, u) => sum + hitungTotalGramEmas(u), 0);
+          const totalNilaiEmas = allUsers.reduce((sum, u) => sum + hitungTotalNilaiEmas(u), 0);
 
-              {/* Search Bar */}
-              <div className="relative w-full sm:w-64">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <Search className="w-3.5 h-3.5" />
-                </div>
-                <input
-                  type="text"
-                  value={userSearchQuery}
-                  onChange={(e) => setUserSearchQuery(e.target.value)}
-                  placeholder="Cari nama atau email..."
-                  className="w-full bg-[#080a0f] border border-[#262c3e] text-xs text-white rounded-xl pl-8 pr-3 py-2 outline-none focus:border-[#ffd700]"
-                />
-              </div>
-            </div>
+          const filteredUsers = allUsers.filter(
+            (u) =>
+              u.nama.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+              u.email.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+              u.uid.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
+              (u.kodeRef && u.kodeRef.toLowerCase().includes(userSearchQuery.toLowerCase()))
+          );
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {allUsers
-                .filter(
-                  (u) =>
-                    u.nama.toLowerCase().includes(userSearchQuery.toLowerCase()) ||
-                    u.email.toLowerCase().includes(userSearchQuery.toLowerCase())
-                )
-                .map((usr) => (
-                  <div
-                    key={usr.id}
-                    className="p-4 rounded-3xl bg-[#0f121a] border border-[#23293a] space-y-3 shadow-lg hover:border-slate-600 transition-colors"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <h4 className="text-xs font-bold text-white">{usr.nama}</h4>
-                          {usr.isAdmin && (
-                            <span className="text-[9px] font-black px-1.5 py-0.2 bg-amber-500/20 text-[#ffd700] rounded">
-                              ADMIN
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-slate-400">{usr.email}</p>
-                        <p className="text-[10px] text-slate-500 font-mono mt-0.5">{usr.telepon}</p>
-                      </div>
-
-                      <button
-                        onClick={() => {
-                          setAdjustModalUser(usr.id);
-                          setAdjustAmount('250000');
-                          setAdjustNote('Bonus promo loyalitas');
-                        }}
-                        className="text-[11px] px-2.5 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-[#ffd700] font-bold border border-amber-500/30 transition-colors"
-                      >
-                        Ubah Saldo
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-[#1e2330]">
-                      <div className="p-2.5 rounded-2xl bg-[#080a0f] border border-[#1b202c]">
-                        <span className="text-[10px] text-slate-400 block">Saldo Kas:</span>
-                        <span className="text-xs font-black text-emerald-400 font-mono mt-0.5 block truncate">
-                          {formatRupiah(usr.saldoUang)}
-                        </span>
-                      </div>
-                      <div className="p-2.5 rounded-2xl bg-[#080a0f] border border-[#1b202c]">
-                        <span className="text-[10px] text-slate-400 block">Saldo Emas:</span>
-                        <span className="text-xs font-black text-[#ffd700] font-mono mt-0.5 block truncate">
-                          {formatGrams(usr.saldoEmas)}
-                        </span>
-                      </div>
-                    </div>
+          return (
+            <div className="space-y-4">
+              {/* Summary Stats Row */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-4 rounded-2xl bg-[#0f121a] border border-[#212738] shadow-md">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-400 font-semibold">Total Nasabah Terdaftar</span>
+                    <Users className="w-4 h-4 text-blue-400" />
                   </div>
-                ))}
+                  <div className="text-xl font-black text-white mt-1">
+                    {allUsers.length} <span className="text-xs font-normal text-slate-400">Akun</span>
+                  </div>
+                  <span className="text-[10px] text-slate-500 mt-0.5 block">
+                    {allUsers.filter((u) => u.isAdmin).length} Staf Admin • {allUsers.filter((u) => !u.isAdmin).length} Nasabah Aktif
+                  </span>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-[#0f121a] border border-[#212738] shadow-md">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-400 font-semibold">Total Saldo Kas Beredar</span>
+                    <DollarSign className="w-4 h-4 text-emerald-400" />
+                  </div>
+                  <div className="text-xl font-black text-emerald-400 font-mono mt-1">
+                    {formatRupiah(totalKasBeredar)}
+                  </div>
+                  <span className="text-[10px] text-slate-500 mt-0.5 block">
+                    Dana kas siap investasi di akun nasabah
+                  </span>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-[#0f121a] border border-[#212738] shadow-md">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-400 font-semibold">Total Portofolio Emas</span>
+                    <Coins className="w-4 h-4 text-[#ffd700]" />
+                  </div>
+                  <div className="text-xl font-black text-[#ffd700] font-mono mt-1">
+                    {totalGramEmas.toFixed(2)} gr
+                  </div>
+                  <span className="text-[10px] text-slate-500 font-mono mt-0.5 block">
+                    ≈ {formatRupiah(totalNilaiEmas)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Controls Bar */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#0f121a] p-4 rounded-2xl border border-[#212738]">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Users className="w-4 h-4 text-[#ffd700]" />
+                    <span>Daftar Nasabah & Pusat Kontrol Aset</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Kelola saldo kas, simpanan emas fisik, audit mutasi transaksi, dan hubungi nasabah via Live Chat.
+                  </p>
+                </div>
+
+                {/* Search Bar */}
+                <div className="relative w-full sm:w-72">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <Search className="w-3.5 h-3.5" />
+                  </div>
+                  <input
+                    type="text"
+                    value={userSearchQuery}
+                    onChange={(e) => setUserSearchQuery(e.target.value)}
+                    placeholder="Cari nama, email, ref, UID..."
+                    className="w-full bg-[#080a0f] border border-[#262c3e] text-xs text-white rounded-xl pl-8 pr-3 py-2 outline-none focus:border-[#ffd700]"
+                  />
+                </div>
+              </div>
+
+              {/* Users Cards Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredUsers.map((usr) => {
+                  const userGrams = hitungTotalGramEmas(usr);
+                  const userGoldVal = hitungTotalNilaiEmas(usr);
+
+                  return (
+                    <div
+                      key={usr.uid}
+                      className="p-4 rounded-3xl bg-[#0f121a] border border-[#23293a] space-y-3.5 shadow-lg hover:border-slate-600 transition-colors"
+                    >
+                      {/* Card Header */}
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-9 h-9 rounded-xl bg-[#1b2130] border border-[#2d374d] text-[#ffd700] font-bold text-sm flex items-center justify-center">
+                            {usr.nama.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <h4 className="text-xs font-bold text-white truncate max-w-[140px]">
+                                {usr.nama}
+                              </h4>
+                              {usr.isAdmin && (
+                                <span className="text-[9px] font-black px-1.5 py-0.2 bg-amber-500/20 text-[#ffd700] rounded">
+                                  ADMIN
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-slate-400 truncate max-w-[150px]">{usr.email}</p>
+                          </div>
+                        </div>
+
+                        <span className="text-[10px] font-mono text-slate-500 px-1.5 py-0.5 rounded bg-[#090b10] border border-[#1b202c]">
+                          Ref: {usr.kodeRef}
+                        </span>
+                      </div>
+
+                      {/* Balances Display */}
+                      <div className="grid grid-cols-2 gap-2 pt-1 border-t border-[#1e2330]">
+                        <div className="p-2.5 rounded-2xl bg-[#080a0f] border border-[#1b202c]">
+                          <span className="text-[10px] text-slate-400 block">Saldo Kas:</span>
+                          <span className="text-xs font-black text-emerald-400 font-mono mt-0.5 block truncate">
+                            {formatRupiah(usr.saldo)}
+                          </span>
+                        </div>
+                        <div className="p-2.5 rounded-2xl bg-[#080a0f] border border-[#1b202c]">
+                          <span className="text-[10px] text-slate-400 block">Saldo Emas:</span>
+                          <span className="text-xs font-black text-[#ffd700] font-mono mt-0.5 block truncate">
+                            {userGrams.toFixed(2)} gr
+                          </span>
+                          <span className="text-[9px] text-slate-500 font-mono block truncate">
+                            ≈ {formatRupiah(userGoldVal)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Gold Holdings Brand Chips */}
+                      {usr.emas && usr.emas.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {usr.emas.map((h) => (
+                            <span
+                              key={h.jenis}
+                              className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-[#161a25] text-amber-200/80 border border-[#242b3d]"
+                            >
+                              {h.jenis}: {h.gram.toFixed(2)}g
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Card Action Buttons */}
+                      <div className="grid grid-cols-3 gap-1.5 pt-1">
+                        <button
+                          onClick={() => setSelectedUserForDetail(usr)}
+                          className="py-1.5 px-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-[11px] font-bold border border-slate-700 transition-colors text-center"
+                        >
+                          Detail
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setAdjustModalUser(usr.uid);
+                            setAdjustType('cash');
+                            setAdjustAmount('500000');
+                            setAdjustNote('Bonus / Penyesuaian saldo admin');
+                          }}
+                          className="py-1.5 px-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-[#ffd700] text-[11px] font-bold border border-amber-500/30 transition-colors text-center"
+                        >
+                          Ubah Saldo
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setActiveChatUserId(usr.uid);
+                            setActiveTab('chat');
+                          }}
+                          className="py-1.5 px-2 rounded-xl bg-blue-500/15 hover:bg-blue-500/25 text-blue-400 text-[11px] font-bold border border-blue-500/30 transition-colors flex items-center justify-center gap-1"
+                        >
+                          <MessageSquare className="w-3 h-3" />
+                          <span>Chat</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {filteredUsers.length === 0 && (
+                <div className="p-8 rounded-3xl bg-[#0f121a] border border-[#212738] text-center text-slate-400 text-xs">
+                  Tidak ditemukan nasabah yang sesuai dengan kata kunci "{userSearchQuery}".
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ================================================================= */}
         {/* TAB 4: MARKET PRICE SETTING & FLUCTUATION */}
@@ -1031,86 +1531,226 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToUserApp }) => 
         {/* ================================================================= */}
         {/* TAB 5: ALL TRANSACTIONS AUDIT LOG */}
         {/* ================================================================= */}
-        {activeTab === 'logs' && (
-          <div className="space-y-4">
-            <div className="bg-[#0f121a] p-4 rounded-2xl border border-[#212738] flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-white">Log Seluruh Transaksi Nasabah</h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Audit mutasi deposit, penarikan, pembelian emas, dan penjualan emas real-time.
-                </p>
+        {activeTab === 'logs' && (() => {
+          const filteredLogs = allLogs.filter((log) => {
+            if (logTypeFilter !== 'all' && log.jenis !== logTypeFilter) return false;
+            if (logStatusFilter !== 'all' && log.status !== logStatusFilter) return false;
+            if (logSearchQuery.trim()) {
+              const q = logSearchQuery.toLowerCase();
+              const matchUser = (log.namaUser || '').toLowerCase().includes(q) || (log.emailUser || '').toLowerCase().includes(q);
+              const matchId = (log.id || '').toLowerCase().includes(q);
+              const matchText = (log.teks || '').toLowerCase().includes(q);
+              if (!matchUser && !matchId && !matchText) return false;
+            }
+            return true;
+          });
+
+          return (
+            <div className="space-y-4">
+              <div className="bg-[#0f121a] p-4 rounded-2xl border border-[#212738] space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-[#ffd700]" />
+                      <span>Log Seluruh Riwayat Mutasi & Transaksi Nasabah</span>
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Audit mutasi deposit, penarikan, pembelian emas, dividen harian, dan bonus admin secara real-time.
+                    </p>
+                  </div>
+                  <span className="text-xs font-mono font-bold text-[#ffd700] px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                    {filteredLogs.length} dari {allLogs.length} Transaksi
+                  </span>
+                </div>
+
+                {/* Filter Controls */}
+                <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 pt-2 border-t border-[#1e2330]">
+                  {/* Jenis filter chips */}
+                  <div className="flex items-center gap-1 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
+                    {[
+                      { id: 'all', label: 'Semua' },
+                      { id: 'deposit', label: 'Deposit' },
+                      { id: 'tarik', label: 'Penarikan' },
+                      { id: 'beli', label: 'Beli Emas' },
+                      { id: 'jual', label: 'Jual Emas' },
+                      { id: 'untung', label: 'Dividen 3%' },
+                      { id: 'bonus', label: 'Bonus / Admin' }
+                    ].map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => setLogTypeFilter(f.id as any)}
+                        className={`text-[11px] px-2.5 py-1 rounded-lg font-bold whitespace-nowrap transition-colors ${
+                          logTypeFilter === f.id
+                            ? 'bg-[#ffd700] text-black shadow'
+                            : 'bg-[#151924] text-slate-400 hover:text-white border border-[#242b3d]'
+                        }`}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Status filter & Search */}
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={logStatusFilter}
+                      onChange={(e) => setLogStatusFilter(e.target.value as any)}
+                      className="bg-[#090b10] border border-[#262c3e] rounded-xl px-2.5 py-1.5 text-xs text-white outline-none focus:border-[#ffd700]"
+                    >
+                      <option value="all">Semua Status</option>
+                      <option value="menunggu">Menunggu</option>
+                      <option value="disetujui">Disetujui / Sukses</option>
+                      <option value="ditolak">Ditolak</option>
+                    </select>
+
+                    <div className="relative w-44">
+                      <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-500">
+                        <Search className="w-3 h-3" />
+                      </div>
+                      <input
+                        type="text"
+                        value={logSearchQuery}
+                        onChange={(e) => setLogSearchQuery(e.target.value)}
+                        placeholder="Cari TRX ID/User..."
+                        className="w-full bg-[#090b10] border border-[#262c3e] text-xs text-white rounded-xl pl-7 pr-2.5 py-1.5 outline-none focus:border-[#ffd700]"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
-              <span className="text-xs font-bold text-slate-400">
-                {allLogs.length} Total Transaksi
-              </span>
-            </div>
 
-            <div className="bg-[#0f121a] border border-[#23293a] rounded-3xl overflow-hidden shadow-xl">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-slate-300">
-                  <thead className="bg-[#090b10] text-[10px] uppercase font-bold text-slate-400 border-b border-[#212738]">
-                    <tr>
-                      <th className="p-3.5">ID & Waktu</th>
-                      <th className="p-3.5">Nasabah</th>
-                      <th className="p-3.5">Jenis Transaksi</th>
-                      <th className="p-3.5">Rincian Nominal</th>
-                      <th className="p-3.5">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#1b202c]">
-                    {allLogs.map((log) => {
-                      const isPending = log.status === 'menunggu';
-                      const isApproved = log.status === 'berhasil';
-                      const isRejected = log.status === 'gagal';
+              {/* Transactions Table */}
+              <div className="bg-[#0f121a] border border-[#23293a] rounded-3xl overflow-hidden shadow-xl">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-300">
+                    <thead className="bg-[#090b10] text-[10px] uppercase font-bold text-slate-400 border-b border-[#212738]">
+                      <tr>
+                        <th className="p-3.5">ID & Waktu</th>
+                        <th className="p-3.5">Nasabah</th>
+                        <th className="p-3.5">Jenis Transaksi</th>
+                        <th className="p-3.5">Rincian Nominal</th>
+                        <th className="p-3.5">Status</th>
+                        <th className="p-3.5 text-right">Tindakan Langsung</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#1b202c]">
+                      {filteredLogs.map((log) => {
+                        const isPending = log.status === 'menunggu';
+                        const isApproved = log.status === 'disetujui';
+                        const isRejected = log.status === 'ditolak';
 
-                      return (
-                        <tr key={log.id} className="hover:bg-[#141823] transition-colors">
-                          <td className="p-3.5">
-                            <span className="font-mono text-[11px] text-slate-400 block">{log.id}</span>
-                            <span className="text-[10px] text-slate-500">{formatDateTime(log.waktu)}</span>
-                          </td>
-                          <td className="p-3.5">
-                            <div className="font-bold text-white">{log.namaUser}</div>
-                            <div className="text-[10px] text-slate-400">{log.emailUser}</div>
-                          </td>
-                          <td className="p-3.5">
-                            <span className="font-semibold uppercase tracking-wider text-[10px] px-2 py-0.5 rounded bg-[#171b26] border border-[#272f42]">
-                              {log.jenis}
-                            </span>
-                            <div className="text-[11px] text-slate-400 mt-1 max-w-xs truncate">
-                              {log.teks}
-                            </div>
-                          </td>
-                          <td className="p-3.5 font-mono">
-                            <div className="font-bold text-white">{formatRupiah(log.jumlah)}</div>
-                            {log.gram !== undefined && log.gram > 0 && (
-                              <div className="text-[11px] text-[#ffd700]">
-                                {formatGrams(log.gram)}
+                        return (
+                          <tr key={log.id} className="hover:bg-[#141823] transition-colors">
+                            <td className="p-3.5 whitespace-nowrap">
+                              <span className="font-mono text-[11px] text-slate-400 block font-semibold">{log.id}</span>
+                              <span className="text-[10px] text-slate-500">{formatDateTime(log.waktu)}</span>
+                            </td>
+                            <td className="p-3.5">
+                              <button
+                                onClick={() => {
+                                  const targetUser = allUsers.find((u) => u.uid === log.uid);
+                                  if (targetUser) setSelectedUserForDetail(targetUser);
+                                }}
+                                className="text-left group"
+                              >
+                                <div className="font-bold text-white group-hover:text-[#ffd700] transition-colors">
+                                  {log.namaUser}
+                                </div>
+                                <div className="text-[10px] text-slate-400">{log.emailUser}</div>
+                              </button>
+                            </td>
+                            <td className="p-3.5">
+                              <span
+                                className={`font-semibold uppercase tracking-wider text-[10px] px-2 py-0.5 rounded-full border ${
+                                  log.jenis === 'deposit'
+                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                    : log.jenis === 'tarik'
+                                    ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
+                                    : log.jenis === 'beli'
+                                    ? 'bg-amber-500/10 text-[#ffd700] border-amber-500/30'
+                                    : log.jenis === 'jual'
+                                    ? 'bg-purple-500/10 text-purple-400 border-purple-500/30'
+                                    : log.jenis === 'untung'
+                                    ? 'bg-yellow-500/10 text-yellow-300 border-yellow-500/30'
+                                    : 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
+                                }`}
+                              >
+                                {log.jenis}
+                              </span>
+                              <div className="text-[11px] text-slate-400 mt-1 max-w-xs line-clamp-1">
+                                {log.teks}
                               </div>
-                            )}
-                          </td>
-                          <td className="p-3.5">
-                            <span
-                              className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
-                                isApproved
-                                  ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                                  : isPending
-                                  ? 'bg-amber-500/15 text-[#ffd700] border border-amber-500/30'
-                                  : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
-                              }`}
-                            >
-                              {log.status}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                            </td>
+                            <td className="p-3.5 font-mono">
+                              <div className="font-bold text-white">{formatRupiah(log.jumlah)}</div>
+                              {log.detail?.gram !== undefined && log.detail.gram > 0 && (
+                                <div className="text-[11px] text-[#ffd700] font-semibold">
+                                  {formatGrams(log.detail.gram)} {log.detail.merk ? `(${log.detail.merk})` : ''}
+                                </div>
+                              )}
+                            </td>
+                            <td className="p-3.5">
+                              <span
+                                className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full inline-block ${
+                                  isApproved
+                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                                    : isPending
+                                    ? 'bg-amber-500/15 text-[#ffd700] border border-amber-500/30 animate-pulse'
+                                    : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+                                }`}
+                              >
+                                {log.status}
+                              </span>
+                            </td>
+                            <td className="p-3.5 text-right">
+                              {isPending ? (
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => {
+                                      const reason = prompt('Masukkan alasan penolakan transaksi:');
+                                      if (reason) {
+                                        adminRejectTransaction(log.id, reason);
+                                      }
+                                    }}
+                                    className="p-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 text-[11px] font-bold transition-colors"
+                                    title="Tolak Transaksi"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      if (confirm(`Setujui transaksi ${log.id} (${formatRupiah(log.jumlah)})?`)) {
+                                        adminApproveTransaction(log.id);
+                                      }
+                                    }}
+                                    className="px-2.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black text-[11px] font-extrabold transition-colors flex items-center gap-1 shadow-sm"
+                                    title="Setujui Transaksi"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>Setujui</span>
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-[11px] text-slate-500 font-mono">Tuntas</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {filteredLogs.length === 0 && (
+                  <div className="p-8 text-center text-slate-400 text-xs">
+                    Tidak ada catatan transaksi yang sesuai dengan filter pencarian.
+                  </div>
+                )}
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ================================================================= */}
         {/* TAB 6: LIVE CHAT SUPPORT DENGAN NASABAH */}
@@ -1139,7 +1779,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToUserApp }) => 
               )}
             </div>
 
-            <AdminLiveChat onOpenAdjustBalance={(uid) => setAdjustModalUser(uid)} />
+            <AdminLiveChat
+              onOpenAdjustBalance={(uid) => {
+                setAdjustModalUser(uid);
+                setAdjustType('cash');
+              }}
+              initialUserId={activeChatUserId}
+            />
           </div>
         )}
       </main>

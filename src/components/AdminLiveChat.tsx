@@ -18,6 +18,7 @@ import {
 
 interface AdminLiveChatProps {
   onOpenAdjustBalance?: (uid: string) => void;
+  initialUserId?: string | null;
 }
 
 const CS_TEMPLATES = [
@@ -28,7 +29,7 @@ const CS_TEMPLATES = [
   'Harga emas di IndoGold diperbarui secara real-time mengikuti fluktuasi pasar dunia.'
 ];
 
-export const AdminLiveChat: React.FC<AdminLiveChatProps> = ({ onOpenAdjustBalance }) => {
+export const AdminLiveChat: React.FC<AdminLiveChatProps> = ({ onOpenAdjustBalance, initialUserId }) => {
   const {
     allUsers,
     supportRooms,
@@ -39,13 +40,20 @@ export const AdminLiveChat: React.FC<AdminLiveChatProps> = ({ onOpenAdjustBalanc
   } = useGold();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(initialUserId || null);
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [showUserPicker, setShowUserPicker] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Sync initialUserId when changed from parent
+  useEffect(() => {
+    if (initialUserId) {
+      setSelectedUserId(initialUserId);
+    }
+  }, [initialUserId]);
 
   // Auto select first user with unread or first room if none selected
   useEffect(() => {
