@@ -26,9 +26,11 @@ import {
   Smartphone,
   Building2,
   FileText,
-  Activity
+  Activity,
+  MessageSquare
 } from 'lucide-react';
 import { ReceiptModal } from './ReceiptModal';
+import { AdminLiveChat } from './AdminLiveChat';
 
 interface AdminPortalProps {
   onBackToUserApp: () => void;
@@ -52,7 +54,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToUserApp }) => 
     hitungTotalGramEmas,
     login,
     switchUser,
-    logout
+    logout,
+    adminTotalUnreadCount
   } = useGold();
 
   // Admin login form state (for non-admin users)
@@ -63,7 +66,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToUserApp }) => 
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   // Tabs inside admin portal
-  const [activeTab, setActiveTab] = useState<'deposit' | 'tarik' | 'users' | 'market' | 'logs'>('deposit');
+  const [activeTab, setActiveTab] = useState<'deposit' | 'tarik' | 'users' | 'market' | 'logs' | 'chat'>('deposit');
   const [selectedReceipt, setSelectedReceipt] = useState<{ url: string; title: string } | null>(null);
 
   // Balance adjustment modal state
@@ -81,24 +84,27 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToUserApp }) => 
   const pendingWithdrawals = transactions.filter((t) => t.jenis === 'tarik' && t.status === 'menunggu');
   const allLogs = [...transactions].sort((a, b) => new Date(b.waktu).getTime() - new Date(a.waktu).getTime());
 
-  const handleAdminLogin = (e: React.FormEvent) => {
+  const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAdminLoginError('');
     setIsLoggingIn(true);
 
-    setTimeout(() => {
-      const res = login(adminEmail, adminPassword);
+    try {
+      const res = await login(adminEmail, adminPassword);
       setIsLoggingIn(false);
       if (!res.success) {
         setAdminLoginError(res.message);
       } else {
         // Verify user is actually admin
-        const found = allUsers.find((u) => u.email.toLowerCase() === adminEmail.toLowerCase());
+        const found = allUsers.find((u) => u.email.toLowerCase() === adminEmail.trim().toLowerCase());
         if (!found?.isAdmin) {
           setAdminLoginError('Akun ini tidak memiliki hak akses administrator pengelola.');
         }
       }
-    }, 250);
+    } catch {
+      setIsLoggingIn(false);
+      setAdminLoginError('Gagal memverifikasi login admin.');
+    }
   };
 
   const handleAdjustSubmit = (e: React.FormEvent) => {
@@ -559,6 +565,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToUserApp }) => 
           >
             <FileText className="w-4 h-4" />
             <span>Semua Riwayat Transaksi</span>
+          </button>
+
+          <button
+            id="admin-tab-chat-btn"
+            onClick={() => setActiveTab('chat')}
+            className={`py-2 px-4 rounded-xl text-xs font-extrabold transition-all flex items-center gap-2 ${
+              activeTab === 'chat'
+                ? 'bg-gradient-to-r from-amber-500 to-yellow-400 text-black shadow-md'
+                : 'text-slate-300 hover:text-white hover:bg-[#161a25]'
+            }`}
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span>Live Chat Nasabah</span>
+            {adminTotalUnreadCount > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-rose-600 text-white font-black animate-pulse">
+                {adminTotalUnreadCount}
+              </span>
+            )}
           </button>
         </div>
 
@@ -1085,6 +1109,37 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToUserApp }) => 
                 </table>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ================================================================= */}
+        {/* TAB 6: LIVE CHAT SUPPORT DENGAN NASABAH */}
+        {/* ================================================================= */}
+        {activeTab === 'chat' && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-[#0f121a] p-4 rounded-2xl border border-[#212738]">
+              <div>
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <span>Pusat Layanan Live Chat Nasabah (24/7)</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    ONLINE & REAL-TIME
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Balas pesan, berikan panduan deposit/penarikan, dan tanggapi pertanyaan nasabah secara instan.
+                </p>
+              </div>
+
+              {adminTotalUnreadCount > 0 && (
+                <div className="px-3 py-1.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 text-xs font-bold flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+                  <span>{adminTotalUnreadCount} Pesan Belum Dibalas</span>
+                </div>
+              )}
+            </div>
+
+            <AdminLiveChat onOpenAdjustBalance={(uid) => setAdjustModalUser(uid)} />
           </div>
         )}
       </main>

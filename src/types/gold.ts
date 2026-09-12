@@ -64,3 +64,29 @@ export interface BankOrWalletOption {
   an: string;
   instruksi: string[];
 }
+
+export interface SupportMessage {
+  id: string;
+  userId: string;
+  userName: string;
+  senderRole: 'user' | 'admin';
+  senderName: string;
+  senderId: string;
+  pesan: string;
+  waktu: string; // ISO string
+  dibaca: boolean;
+  createdAt: number;
+}
+
+export interface SupportRoom {
+  id: string; // userId
+  userId: string;
+  userName: string;
+  userEmail: string;
+  lastMessage: string;
+  lastMessageTime: string;
+  lastSenderRole: 'user' | 'admin';
+  unreadByAdmin: number;
+  unreadByUser: number;
+  updatedAt: number;
+}

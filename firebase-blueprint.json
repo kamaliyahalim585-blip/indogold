@@ -49,6 +49,42 @@
         "catatan": { "type": "string" }
       },
       "required": ["id", "userId", "jenis", "jumlah", "status", "waktu"]
+    },
+    "SupportRoom": {
+      "title": "SupportRoom",
+      "description": "Kamar percakapan live chat antara nasabah dan tim admin CS",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "lastMessage": { "type": "string" },
+        "lastMessageTime": { "type": "string" },
+        "lastSenderRole": { "type": "string", "enum": ["user", "admin"] },
+        "unreadByAdmin": { "type": "number" },
+        "unreadByUser": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["id", "userId", "userName", "lastMessage", "updatedAt"]
+    },
+    "SupportMessage": {
+      "title": "SupportMessage",
+      "description": "Pesan chat riil antara pengguna dan admin backoffice",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "senderRole": { "type": "string", "enum": ["user", "admin"] },
+        "senderName": { "type": "string" },
+        "senderId": { "type": "string" },
+        "pesan": { "type": "string" },
+        "waktu": { "type": "string" },
+        "dibaca": { "type": "boolean" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "userId", "senderRole", "pesan", "waktu", "createdAt"]
     }
   },
   "firestore": {
@@ -59,6 +95,14 @@
     "/transactions/{transactionId}": {
       "schema": "Transaction",
       "description": "Koleksi riwayat transaksi setor, tarik, dan beli/jual emas"
+    },
+    "/support_rooms/{roomId}": {
+      "schema": "SupportRoom",
+      "description": "Koleksi percakapan/thread bantuan nasabah"
+    },
+    "/support_messages/{messageId}": {
+      "schema": "SupportMessage",
+      "description": "Koleksi pesan individual obrolan live chat"
     }
   }
 }

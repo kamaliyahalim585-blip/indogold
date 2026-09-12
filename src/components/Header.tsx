@@ -14,8 +14,7 @@ import {
   User,
   Copy,
   Check,
-  Gift,
-  ShieldCheck
+  Gift
 } from 'lucide-react';
 import { formatRupiah } from '../utils/formatters';
 
@@ -23,14 +22,12 @@ interface HeaderProps {
   onNavigate?: (tab: TabType) => void;
   onOpenDeposit?: () => void;
   onOpenWithdraw?: () => void;
-  onOpenAdmin?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   onNavigate,
   onOpenDeposit,
-  onOpenWithdraw,
-  onOpenAdmin
+  onOpenWithdraw
 }) => {
   const {
     currentUser,
@@ -271,22 +268,6 @@ export const Header: React.FC<HeaderProps> = ({
                     <User className="w-3.5 h-3.5 text-purple-400" />
                     <span>Profil & Pengaturan Akun</span>
                   </button>
-
-                  {onOpenAdmin && (
-                    <button
-                      id="header-open-admin-btn"
-                      onClick={() => handleMenuClick(onOpenAdmin)}
-                      className="w-full py-1.5 px-2.5 rounded-lg text-xs font-semibold flex items-center justify-between text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Portal Admin / Pengelola</span>
-                      </div>
-                      <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-amber-500/20 text-[#ffd700]">
-                        ADMIN
-                      </span>
-                    </button>
-                  )}
                 </div>
 
                 {/* 5. Logout Action Button */}

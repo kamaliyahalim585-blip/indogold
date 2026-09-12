@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
-import { UserAccount, Transaction, GoldBrandId, GoldProduct } from '../types/gold';
+import { UserAccount, Transaction, GoldBrandId, GoldProduct, SupportMessage, SupportRoom } from '../types/gold';
 import {
   INITIAL_USERS,
   INITIAL_PRICE_POINTS,
@@ -15,13 +15,17 @@ import {
   doc,
   setDoc,
   updateDoc,
-  onSnapshot
+  onSnapshot,
+  getDocs
 } from 'firebase/firestore';
 import confetti from 'canvas-confetti';
 
+const STORAGE_USERS_KEY = 'indogold_registered_users_v2';
 const STORAGE_CURRENT_USER_KEY = 'indogold_auth_uid_v2';
 const STORAGE_PRICE_KEY = 'indogold_base_price_v2';
 const STORAGE_PRICE_HISTORY_KEY = 'indogold_price_history_v2';
+const STORAGE_SUPPORT_ROOMS_KEY = 'indogold_support_rooms_v2';
+const STORAGE_SUPPORT_MESSAGES_KEY = 'indogold_support_messages_v2';
 
 export const PERSEN_UNTUNG_HARIAN = 0.03; // 3% dividen harian
 
@@ -43,7 +47,7 @@ interface GoldContextType {
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   hideToast: () => void;
   // Auth
-  login: (email: string, sandi: string) => { success: boolean; message: string };
+  login: (email: string, sandi: string) => Promise<{ success: boolean; message: string }>;
   register: (nama: string, email: string, sandi: string, kodeRef?: string) => Promise<{ success: boolean; message: string }>;
   logout: () => void;
   switchUser: (uid: string) => void;
@@ -78,14 +82,46 @@ interface GoldContextType {
   hitungTotalNilaiEmas: (user?: UserAccount | null) => number;
   hitungTotalGramEmas: (user?: UserAccount | null) => number;
   getBrandInfo: (brandId: GoldBrandId) => GoldProduct;
+  // Live Support Chat
+  supportRooms: SupportRoom[];
+  supportMessages: SupportMessage[];
+  sendSupportMessage: (pesan: string, targetUserId?: string) => Promise<{ success: boolean; message: string }>;
+  markSupportChatAsRead: (targetUserId: string, readerRole: 'user' | 'admin') => Promise<void>;
+  userUnreadCount: number;
+  adminTotalUnreadCount: number;
 }
 
 const GoldContext = createContext<GoldContextType | undefined>(undefined);
 
 export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // Cloud Database state synchronized with Firestore
-  const [allUsers, setAllUsers] = useState<UserAccount[]>(INITIAL_USERS);
+  // Cloud Database state synchronized with Firestore & LocalStorage
+  const [allUsers, setAllUsers] = useState<UserAccount[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_USERS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return INITIAL_USERS;
+  });
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [supportRooms, setSupportRooms] = useState<SupportRoom[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_SUPPORT_ROOMS_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [supportMessages, setSupportMessages] = useState<SupportMessage[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_SUPPORT_MESSAGES_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   const [currentUid, setCurrentUid] = useState<string | null>(() => {
     try {
@@ -133,6 +169,9 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             list.push(d.data() as UserAccount);
           });
           setAllUsers(list);
+          try {
+            localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(list));
+          } catch {}
         }
       },
       (error) => {
@@ -158,6 +197,56 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       },
       (error) => {
         console.warn('Firestore transactions snapshot listener error:', error);
+      }
+    );
+
+    return () => unsub();
+  }, []);
+
+  // 3. Synchronize support chat rooms from Firestore in real-time
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, 'support_rooms'),
+      (snapshot) => {
+        const list: SupportRoom[] = [];
+        snapshot.forEach((d) => {
+          list.push(d.data() as SupportRoom);
+        });
+        list.sort((a, b) => b.updatedAt - a.updatedAt);
+        setSupportRooms(list);
+        try {
+          localStorage.setItem(STORAGE_SUPPORT_ROOMS_KEY, JSON.stringify(list));
+        } catch (e) {
+          console.error('Storage rooms write error', e);
+        }
+      },
+      (error) => {
+        console.warn('Firestore support_rooms listener error (cached state retained):', error);
+      }
+    );
+
+    return () => unsub();
+  }, []);
+
+  // 4. Synchronize support messages from Firestore in real-time
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, 'support_messages'),
+      (snapshot) => {
+        const list: SupportMessage[] = [];
+        snapshot.forEach((d) => {
+          list.push(d.data() as SupportMessage);
+        });
+        list.sort((a, b) => a.createdAt - b.createdAt);
+        setSupportMessages(list);
+        try {
+          localStorage.setItem(STORAGE_SUPPORT_MESSAGES_KEY, JSON.stringify(list));
+        } catch (e) {
+          console.error('Storage messages write error', e);
+        }
+      },
+      (error) => {
+        console.warn('Firestore support_messages listener error (cached state retained):', error);
       }
     );
 
@@ -273,15 +362,77 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const todayStr = new Date().toISOString().slice(0, 10);
   const canClaimProfit = !!(currentUser && currentUser.terakhirKeuntungan !== todayStr);
 
-  // Auth: Login
-  const login = (email: string, sandi: string) => {
-    const user = allUsers.find((u) => u.email.toLowerCase() === email.toLowerCase());
+  // Auth: Login with multi-layer fallback (State -> LocalStorage -> Direct Firestore query)
+  const login = async (email: string, sandi: string): Promise<{ success: boolean; message: string }> => {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanSandi = sandi.trim();
+
+    if (!cleanEmail) {
+      return { success: false, message: 'Silakan masukkan alamat email yang valid' };
+    }
+    if (!cleanSandi) {
+      return { success: false, message: 'Silakan masukkan kata sandi akun Anda' };
+    }
+
+    // Layer 1: Check in-memory allUsers state
+    let user = allUsers.find((u) => u.email.trim().toLowerCase() === cleanEmail);
+
+    // Layer 2: Check localStorage cached users
     if (!user) {
-      return { success: false, message: 'Email tidak ditemukan di sistem' };
+      try {
+        const saved = localStorage.getItem(STORAGE_USERS_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved) as UserAccount[];
+          if (Array.isArray(parsed)) {
+            const foundInStorage = parsed.find((u) => u.email.trim().toLowerCase() === cleanEmail);
+            if (foundInStorage) {
+              user = foundInStorage;
+              setAllUsers(parsed);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('LocalStorage user lookup check error:', err);
+      }
     }
-    if (user.sandi !== sandi) {
-      return { success: false, message: 'Kata sandi salah. Coba lagi.' };
+
+    // Layer 3: Direct fetch from Firestore users collection
+    if (!user) {
+      try {
+        const snap = await getDocs(collection(db, 'users'));
+        if (!snap.empty) {
+          const liveUsers: UserAccount[] = [];
+          snap.forEach((d) => {
+            const uData = d.data() as UserAccount;
+            liveUsers.push(uData);
+            if (uData.email.trim().toLowerCase() === cleanEmail) {
+              user = uData;
+            }
+          });
+
+          if (liveUsers.length > 0) {
+            setAllUsers(liveUsers);
+            try {
+              localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(liveUsers));
+            } catch {}
+          }
+        }
+      } catch (err) {
+        console.warn('Direct Firestore users lookup error:', err);
+      }
     }
+
+    if (!user) {
+      return {
+        success: false,
+        message: 'Email tidak ditemukan di sistem. Pastikan penulisan email sudah benar atau silakan lakukan pendaftaran akun baru.'
+      };
+    }
+
+    if (user.sandi !== cleanSandi && user.sandi !== sandi) {
+      return { success: false, message: 'Kata sandi salah. Silakan periksa kembali kata sandi akun Anda.' };
+    }
+
     setCurrentUid(user.uid);
     showToast(`Selamat datang kembali, ${user.nama}!`, 'success');
     return { success: true, message: 'Berhasil masuk' };
@@ -289,16 +440,20 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // Auth: Register (Real starting balance = Rp 0, 0 gram gold)
   const register = async (nama: string, email: string, sandi: string, kodeRef?: string) => {
-    if (!nama.trim() || !email.trim() || sandi.length < 6) {
+    const cleanNama = nama.trim();
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanSandi = sandi.trim();
+
+    if (!cleanNama || !cleanEmail || cleanSandi.length < 6) {
       return { success: false, message: 'Lengkapi data. Kata sandi minimal 6 karakter' };
     }
-    const exists = allUsers.some((u) => u.email.toLowerCase() === email.toLowerCase());
+    const exists = allUsers.some((u) => u.email.trim().toLowerCase() === cleanEmail);
     if (exists) {
-      return { success: false, message: 'Email ini sudah terdaftar. Silakan login' };
+      return { success: false, message: 'Email ini sudah terdaftar. Silakan login ke akun Anda' };
     }
 
     const newUid = 'usr-' + Date.now();
-    const newRefCode = generateReferralCode(nama);
+    const newRefCode = generateReferralCode(cleanNama);
     let referrer: UserAccount | undefined;
 
     if (kodeRef && kodeRef.trim()) {
@@ -315,8 +470,8 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const trxBonusDaftar: Transaction = {
       id: generateId('TRX'),
       uid: newUid,
-      namaUser: nama.trim(),
-      emailUser: email.trim(),
+      namaUser: cleanNama,
+      emailUser: cleanEmail,
       teks: '🎁 Saldo Bonus Pendaftaran Pengguna Baru',
       jumlah: BONUS_PENDAFTARAN,
       jenis: 'bonus',
@@ -335,8 +490,8 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const trxBonusRefUser: Transaction = {
         id: generateId('TRX'),
         uid: newUid,
-        namaUser: nama.trim(),
-        emailUser: email.trim(),
+        namaUser: cleanNama,
+        emailUser: cleanEmail,
         teks: `🎉 Bonus Penggunaan Kode Referral (${referrer.kodeRef})`,
         jumlah: BONUS_REFERRAL_USER,
         jenis: 'bonus',
@@ -357,7 +512,7 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         uid: referrer.uid,
         namaUser: referrer.nama,
         emailUser: referrer.email,
-        teks: `👥 Komisi Referral — Nasabah Baru: ${nama.trim()}`,
+        teks: `👥 Komisi Referral — Nasabah Baru: ${cleanNama}`,
         jumlah: BONUS_REFERRAL_PENGUNDANG,
         jenis: 'bonus',
         status: 'disetujui',
@@ -368,9 +523,9 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const newUser: UserAccount = {
       uid: newUid,
-      nama: nama.trim(),
-      email: email.trim(),
-      sandi,
+      nama: cleanNama,
+      email: cleanEmail,
+      sandi: cleanSandi,
       saldo: saldoAwal,
       emas: [],
       kodeRef: newRefCode,
@@ -396,13 +551,16 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         });
       }
 
-      // Update local state
+      // Update local state and localStorage
       setAllUsers((prev) => {
         const withoutNew = prev.filter((u) => u.uid !== newUid);
-        if (updatedReferrer) {
-          return [...withoutNew.map((u) => (u.uid === updatedReferrer!.uid ? updatedReferrer! : u)), newUser];
-        }
-        return [...withoutNew, newUser];
+        const updated = updatedReferrer
+          ? [...withoutNew.map((u) => (u.uid === updatedReferrer!.uid ? updatedReferrer! : u)), newUser]
+          : [...withoutNew, newUser];
+        try {
+          localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(updated));
+        } catch {}
+        return updated;
       });
 
       setTransactions((prev) => [...bonusTrxList, ...prev]);
@@ -426,13 +584,16 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return { success: true, message: 'Pendaftaran berhasil' };
     } catch (err: unknown) {
       console.error('Error saving user to Firestore:', err);
-      // Local fallback
+      // Local fallback with localStorage saving
       setAllUsers((prev) => {
         const withoutNew = prev.filter((u) => u.uid !== newUid);
-        if (updatedReferrer) {
-          return [...withoutNew.map((u) => (u.uid === updatedReferrer!.uid ? updatedReferrer! : u)), newUser];
-        }
-        return [...withoutNew, newUser];
+        const updated = updatedReferrer
+          ? [...withoutNew.map((u) => (u.uid === updatedReferrer!.uid ? updatedReferrer! : u)), newUser]
+          : [...withoutNew, newUser];
+        try {
+          localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(updated));
+        } catch {}
+        return updated;
       });
       setTransactions((prev) => [...bonusTrxList, ...prev]);
       setCurrentUid(newUid);
@@ -901,6 +1062,112 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     showToast('Seluruh data aplikasi direset ke setelan awal pabrik.', 'info');
   };
 
+  // Support Live Chat Operations
+  const sendSupportMessage = async (
+    pesan: string,
+    targetUserId?: string
+  ): Promise<{ success: boolean; message: string }> => {
+    const cleanText = pesan.trim();
+    if (!cleanText) {
+      return { success: false, message: 'Pesan tidak boleh kosong' };
+    }
+
+    if (!currentUser) {
+      return { success: false, message: 'Silakan login terlebih dahulu' };
+    }
+
+    const isSenderAdmin = currentUser.isAdmin || currentUser.email === 'admin@indogold.com';
+    const roomUserId = isSenderAdmin ? (targetUserId || '') : currentUser.uid;
+
+    if (!roomUserId) {
+      return { success: false, message: 'Penerima pesan tidak valid' };
+    }
+
+    const targetCustomer = allUsers.find((u) => u.uid === roomUserId) || (roomUserId === currentUser.uid ? currentUser : null);
+    const targetUserName = targetCustomer?.nama || (isSenderAdmin ? 'Nasabah' : currentUser.nama);
+    const targetUserEmail = targetCustomer?.email || '';
+
+    const now = new Date();
+    const timeString = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    const messageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    const newMsg: SupportMessage = {
+      id: messageId,
+      userId: roomUserId,
+      userName: targetUserName,
+      senderRole: isSenderAdmin ? 'admin' : 'user',
+      senderName: isSenderAdmin ? 'Tim CS IndoGold' : currentUser.nama,
+      senderId: currentUser.uid,
+      pesan: cleanText,
+      waktu: now.toISOString(),
+      dibaca: false,
+      createdAt: Date.now()
+    };
+
+    const existingRoom = supportRooms.find((r) => r.userId === roomUserId);
+    const updatedRoom: SupportRoom = {
+      id: roomUserId,
+      userId: roomUserId,
+      userName: targetUserName,
+      userEmail: targetUserEmail,
+      lastMessage: cleanText,
+      lastMessageTime: timeString,
+      lastSenderRole: isSenderAdmin ? 'admin' : 'user',
+      unreadByAdmin: isSenderAdmin ? 0 : ((existingRoom?.unreadByAdmin || 0) + 1),
+      unreadByUser: isSenderAdmin ? ((existingRoom?.unreadByUser || 0) + 1) : 0,
+      updatedAt: Date.now()
+    };
+
+    // Optimistic local state update
+    setSupportMessages((prev) => [...prev, newMsg]);
+    setSupportRooms((prev) => {
+      const filtered = prev.filter((r) => r.userId !== roomUserId);
+      return [updatedRoom, ...filtered];
+    });
+
+    // Write to Firestore
+    try {
+      await setDoc(doc(db, 'support_messages', messageId), newMsg);
+      await setDoc(doc(db, 'support_rooms', roomUserId), updatedRoom, { merge: true });
+      return { success: true, message: 'Pesan berhasil terkirim' };
+    } catch (err) {
+      console.warn('Firestore support chat write error (stored locally):', err);
+      return { success: true, message: 'Pesan tersimpan' };
+    }
+  };
+
+  const markSupportChatAsRead = async (targetUserId: string, readerRole: 'user' | 'admin') => {
+    setSupportRooms((prev) =>
+      prev.map((r) => {
+        if (r.userId === targetUserId) {
+          return {
+            ...r,
+            unreadByAdmin: readerRole === 'admin' ? 0 : r.unreadByAdmin,
+            unreadByUser: readerRole === 'user' ? 0 : r.unreadByUser
+          };
+        }
+        return r;
+      })
+    );
+
+    try {
+      const roomRef = doc(db, 'support_rooms', targetUserId);
+      if (readerRole === 'admin') {
+        await updateDoc(roomRef, { unreadByAdmin: 0 });
+      } else {
+        await updateDoc(roomRef, { unreadByUser: 0 });
+      }
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  const userUnreadCount = currentUser
+    ? supportRooms.find((r) => r.userId === currentUser.uid)?.unreadByUser || 0
+    : 0;
+
+  const adminTotalUnreadCount = supportRooms.reduce((acc, r) => acc + (r.unreadByAdmin || 0), 0);
+
   return (
     <GoldContext.Provider
       value={{
@@ -933,7 +1200,13 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         resetToFactoryData,
         hitungTotalNilaiEmas,
         hitungTotalGramEmas,
-        getBrandInfo
+        getBrandInfo,
+        supportRooms,
+        supportMessages,
+        sendSupportMessage,
+        markSupportChatAsRead,
+        userUnreadCount,
+        adminTotalUnreadCount
       }}
     >
       {children}

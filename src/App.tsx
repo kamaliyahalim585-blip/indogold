@@ -12,7 +12,7 @@ import { RiwayatPage } from './components/RiwayatPage';
 import { AkunPage } from './components/AkunPage';
 import { AdminPortal } from './components/AdminPortal';
 import { AuthPage } from './components/AuthPage';
-import { ShieldCheck } from 'lucide-react';
+import { LiveChatWidget } from './components/LiveChatWidget';
 
 const MainApp: React.FC = () => {
   const { currentUser, logout } = useGold();
@@ -93,7 +93,7 @@ const MainApp: React.FC = () => {
       <div className="min-h-screen bg-[#07090d] text-slate-100 flex flex-col items-center justify-center p-4">
         <Toast />
         <div className="w-full max-w-md bg-[#0b0e14] border border-[#1d2230] rounded-3xl p-3 sm:p-5 shadow-2xl space-y-4">
-          <AuthPage initialMode="register" onOpenAdmin={handleOpenAdminPortal} />
+          <AuthPage initialMode="register" />
         </div>
       </div>
     );
@@ -134,7 +134,6 @@ const MainApp: React.FC = () => {
           onNavigate={handleTabChange}
           onOpenDeposit={handleOpenDeposit}
           onOpenWithdraw={handleOpenWithdraw}
-          onOpenAdmin={handleOpenAdminPortal}
         />
 
         {/* Page Content Body */}
@@ -174,7 +173,7 @@ const MainApp: React.FC = () => {
           ) : activeTab === 'riwayat' ? (
             <RiwayatPage />
           ) : (
-            <AkunPage onLogout={logout} onOpenAdmin={handleOpenAdminPortal} />
+            <AkunPage onLogout={logout} />
           )}
         </main>
 
@@ -182,19 +181,14 @@ const MainApp: React.FC = () => {
         {!isDepositOpen && !isWithdrawOpen && (
           <BottomNav activeTab={activeTab} onChangeTab={handleTabChange} />
         )}
+
+        {/* Floating Customer Service Live Chat Widget for Users */}
+        <LiveChatWidget onOpenAuth={() => setActiveTab('akun')} />
       </div>
 
-      {/* Clean, professional footer for users with discreet admin access */}
-      <footer className="py-3 text-center text-[11px] text-slate-600 flex flex-col items-center justify-center gap-1.5">
+      {/* Clean, professional footer for users */}
+      <footer className="py-4 text-center text-[11px] text-slate-600">
         <span>© {new Date().getFullYear()} IndoGold Platform. Investasi Emas Digital Aman & Terpercaya.</span>
-        <button
-          onClick={handleOpenAdminPortal}
-          className="text-[10px] text-slate-500 hover:text-amber-400 transition-colors inline-flex items-center gap-1 py-0.5 px-2 rounded-lg hover:bg-slate-800/50"
-          title="Buka panel admin dan backoffice pengelola"
-        >
-          <ShieldCheck className="w-3 h-3 text-amber-400/80" />
-          <span>Portal Admin Pengelola (#admin)</span>
-        </button>
       </footer>
     </div>
   );

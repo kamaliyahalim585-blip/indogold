@@ -12,15 +12,15 @@ import {
   LogOut,
   Sparkles,
   Coins,
-  ChevronRight
+  ChevronRight,
+  Headphones
 } from 'lucide-react';
 
 interface AkunPageProps {
   onLogout: () => void;
-  onOpenAdmin?: () => void;
 }
 
-export const AkunPage: React.FC<AkunPageProps> = ({ onLogout, onOpenAdmin }) => {
+export const AkunPage: React.FC<AkunPageProps> = ({ onLogout }) => {
   const {
     currentUser,
     allUsers,
@@ -238,31 +238,32 @@ export const AkunPage: React.FC<AkunPageProps> = ({ onLogout, onOpenAdmin }) => 
           </span>
         </div>
 
-        {/* Portal Admin Button */}
-        {onOpenAdmin && (
-          <button
-            onClick={onOpenAdmin}
-            className="w-full p-3.5 flex items-center justify-between text-left hover:bg-amber-500/10 transition-colors text-amber-400 group"
-          >
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-amber-500/15 text-amber-400 group-hover:scale-105 transition-transform">
-                <ShieldCheck className="w-4 h-4" />
+        {/* Live Chat Bantuan CS */}
+        <button
+          onClick={() => {
+            const btn = document.getElementById('open-live-chat-fab');
+            if (btn) btn.click();
+          }}
+          className="w-full p-3.5 flex items-center justify-between text-left hover:bg-amber-500/10 transition-colors text-amber-300 group"
+        >
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-amber-500/15 text-amber-400 group-hover:scale-105 transition-transform">
+              <Headphones className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                <span>Pusat Bantuan & Live CS</span>
+                <span className="text-[9px] font-extrabold px-1.5 py-0.2 bg-amber-500/20 text-[#ffd700] rounded">
+                  24/7 ONLINE
+                </span>
               </div>
-              <div>
-                <div className="text-xs font-bold text-white flex items-center gap-1.5">
-                  <span>Portal Admin & Pengelola</span>
-                  <span className="text-[9px] font-black px-1.5 py-0.2 bg-amber-500/20 text-[#ffd700] rounded border border-amber-500/30">
-                    ADMIN
-                  </span>
-                </div>
-                <div className="text-[10px] text-slate-400">
-                  Approval deposit, penarikan dana & kontrol harga pasar
-                </div>
+              <div className="text-[10px] text-slate-400">
+                Hubungi Customer Service untuk kendala deposit, tarik dana, dll
               </div>
             </div>
-            <ChevronRight className="w-4 h-4 text-amber-400 group-hover:translate-x-1 transition-transform" />
-          </button>
-        )}
+          </div>
+          <ChevronRight className="w-4 h-4 text-amber-400 group-hover:translate-x-1 transition-transform" />
+        </button>
 
         {/* Logout */}
         <button

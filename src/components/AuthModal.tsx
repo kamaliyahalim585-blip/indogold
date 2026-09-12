@@ -22,14 +22,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose }) => {
   const [regRefCode, setRegRefCode] = useState('');
   const [regError, setRegError] = useState('');
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
-    const res = login(loginEmail, loginPassword);
-    if (!res.success) {
-      setLoginError(res.message);
-    } else {
-      if (onClose) onClose();
+    try {
+      const res = await login(loginEmail, loginPassword);
+      if (!res.success) {
+        setLoginError(res.message);
+      } else {
+        if (onClose) onClose();
+      }
+    } catch {
+      setLoginError('Terjadi kesalahan saat masuk.');
     }
   };
 

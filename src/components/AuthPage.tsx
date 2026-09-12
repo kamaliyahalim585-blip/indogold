@@ -12,17 +12,15 @@ import {
   EyeOff,
   CheckCircle2,
   Coins,
-  ArrowRight,
-  ShieldCheck
+  ArrowRight
 } from 'lucide-react';
 
 interface AuthPageProps {
   initialMode?: 'login' | 'register';
   onSuccess?: () => void;
-  onOpenAdmin?: () => void;
 }
 
-export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onSuccess, onOpenAdmin }) => {
+export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onSuccess }) => {
   const { login, register } = useGold();
   const [isRegisterMode, setIsRegisterMode] = useState(initialMode === 'register');
 
@@ -42,20 +40,23 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onSuc
   const [regRefCode, setRegRefCode] = useState('');
   const [regError, setRegError] = useState('');
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
     setIsSubmitting(true);
 
-    setTimeout(() => {
-      const res = login(loginEmail, loginPassword);
+    try {
+      const res = await login(loginEmail, loginPassword);
       setIsSubmitting(false);
       if (!res.success) {
         setLoginError(res.message);
       } else {
         if (onSuccess) onSuccess();
       }
-    }, 250);
+    } catch {
+      setIsSubmitting(false);
+      setLoginError('Terjadi gangguan jaringan saat memverifikasi akun.');
+    }
   };
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
@@ -189,8 +190,24 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onSuc
               </div>
 
               {loginError && (
-                <div className="text-xs text-rose-400 font-medium bg-rose-500/10 p-2.5 rounded-xl border border-rose-500/20 animate-in fade-in">
-                  {loginError}
+                <div className="space-y-2 animate-in fade-in">
+                  <div className="text-xs text-rose-400 font-medium bg-rose-500/10 p-2.5 rounded-xl border border-rose-500/20">
+                    {loginError}
+                  </div>
+                  {loginError.toLowerCase().includes('tidak ditemukan') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRegEmail(loginEmail.trim());
+                        setIsRegisterMode(true);
+                        setLoginError('');
+                      }}
+                      className="w-full py-2 px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <span>Daftarkan Email Ini Sekarang (Bonus Rp 20.000)</span>
+                      <ArrowRight className="w-3.5 h-3.5 text-[#ffd700]" />
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -361,21 +378,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onSuc
           </div>
         )}
       </div>
-
-      {/* Admin quick access */}
-      {onOpenAdmin && (
-        <div className="text-center pt-1">
-          <button
-            type="button"
-            id="auth-open-admin-btn"
-            onClick={onOpenAdmin}
-            className="text-[11px] text-slate-500 hover:text-amber-400 transition-colors inline-flex items-center gap-1.5"
-          >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Masuk ke Portal Pengelola (Admin Backoffice)</span>
-          </button>
-        </div>
-      )}
     </div>
   );
 };
