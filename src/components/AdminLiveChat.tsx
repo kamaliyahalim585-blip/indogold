@@ -97,6 +97,16 @@ export const AdminLiveChat: React.FC<AdminLiveChatProps> = ({ onOpenAdjustBalanc
 
   // Get active user data
   const selectedUser = allUsers.find((u) => u.uid === selectedUserId);
+  const selectedRoom = supportRooms.find((r) => r.userId === selectedUserId);
+
+  const activeCustomer = selectedUser || (selectedRoom ? {
+    uid: selectedRoom.userId,
+    nama: selectedRoom.userName || 'Calon Nasabah',
+    email: selectedRoom.userEmail || 'Tamu Pengunjung',
+    saldo: 0,
+    emas: [],
+    isAdmin: false
+  } : null);
 
   // Combine rooms and all registered users to make sure admin can chat with anyone
   const threadList = [...supportRooms];
@@ -264,49 +274,59 @@ export const AdminLiveChat: React.FC<AdminLiveChatProps> = ({ onOpenAdjustBalanc
 
       {/* RIGHT COLUMN: Active Chat & Reply Window */}
       <div className="flex-1 flex flex-col bg-[#0d1017]">
-        {selectedUserId && selectedUser ? (
+        {selectedUserId && activeCustomer ? (
           <>
             {/* Chat Header Profile Info */}
             <div className="p-3.5 bg-[#10141e] border-b border-[#212738] flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500/20 to-yellow-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-black">
-                  {selectedUser.nama.slice(0, 2).toUpperCase()}
+                  {activeCustomer.nama.slice(0, 2).toUpperCase()}
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-sm font-bold text-white">
-                      {selectedUser.nama}
+                      {activeCustomer.nama}
                     </h3>
-                    <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                      NASABAH TERVERIFIKASI
-                    </span>
+                    {selectedUser ? (
+                      <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                        NASABAH TERDAFTAR
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                        CALON NASABAH (TAMU)
+                      </span>
+                    )}
                   </div>
                   <div className="text-[11px] text-slate-400 font-mono">
-                    {selectedUser.email} • ID: {selectedUser.uid}
+                    {activeCustomer.email} • ID: {activeCustomer.uid}
                   </div>
                 </div>
               </div>
 
               {/* User Financial Snapshot & Action */}
               <div className="flex items-center gap-3">
-                <div className="hidden sm:block text-right">
-                  <div className="text-[10px] text-slate-400">Saldo Kas Nasabah</div>
-                  <div className="text-xs font-bold text-[#ffd700] font-mono">
-                    {formatRupiah(selectedUser.saldo)}
-                  </div>
-                </div>
+                {selectedUser && (
+                  <>
+                    <div className="hidden sm:block text-right">
+                      <div className="text-[10px] text-slate-400">Saldo Kas Nasabah</div>
+                      <div className="text-xs font-bold text-[#ffd700] font-mono">
+                        {formatRupiah(selectedUser.saldo)}
+                      </div>
+                    </div>
 
-                <div className="hidden sm:block text-right">
-                  <div className="text-[10px] text-slate-400">Saldo Emas</div>
-                  <div className="text-xs font-bold text-amber-400 font-mono">
-                    {formatGrams(hitungTotalGramEmas(selectedUser))}
-                  </div>
-                </div>
+                    <div className="hidden sm:block text-right">
+                      <div className="text-[10px] text-slate-400">Saldo Emas</div>
+                      <div className="text-xs font-bold text-amber-400 font-mono">
+                        {formatGrams(hitungTotalGramEmas(selectedUser))}
+                      </div>
+                    </div>
+                  </>
+                )}
 
-                {onOpenAdjustBalance && (
+                {selectedUser && onOpenAdjustBalance && (
                   <button
                     onClick={() => onOpenAdjustBalance(selectedUser.uid)}
-                    className="py-1.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 border border-slate-700 transition-colors"
+                    className="py-1.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-1.5 border border-slate-700 transition-colors cursor-pointer"
                   >
                     <Sliders className="w-3.5 h-3.5 text-[#ffd700]" />
                     <span>Ubah Saldo</span>
@@ -403,7 +423,7 @@ export const AdminLiveChat: React.FC<AdminLiveChatProps> = ({ onOpenAdjustBalanc
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                placeholder={`Balas ${selectedUser.nama} sebagai Tim CS IndoGold...`}
+                placeholder={`Balas ${activeCustomer.nama} sebagai Tim CS IndoGold...`}
                 className="flex-1 bg-[#090b10] border border-[#232a3c] rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 outline-none focus:border-[#ffd700] transition-colors"
                 disabled={isSending}
               />

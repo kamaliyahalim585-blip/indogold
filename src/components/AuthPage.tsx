@@ -12,7 +12,10 @@ import {
   EyeOff,
   CheckCircle2,
   Coins,
-  ArrowRight
+  ArrowRight,
+  KeyRound,
+  Zap,
+  MessageSquare
 } from 'lucide-react';
 
 interface AuthPageProps {
@@ -21,7 +24,7 @@ interface AuthPageProps {
 }
 
 export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onSuccess }) => {
-  const { login, register } = useGold();
+  const { login, register, resetPassword } = useGold();
   const [isRegisterMode, setIsRegisterMode] = useState(initialMode === 'register');
 
   // Password visibility
@@ -40,6 +43,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onSuc
   const [regRefCode, setRegRefCode] = useState('');
   const [regError, setRegError] = useState('');
 
+  const handleQuickFill = (email: string) => {
+    setLoginEmail(email);
+    setLoginPassword('123456');
+    setLoginError('');
+  };
+
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
@@ -56,6 +65,27 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onSuc
     } catch {
       setIsSubmitting(false);
       setLoginError('Terjadi gangguan jaringan saat memverifikasi akun.');
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!loginEmail.trim()) {
+      setLoginError('Silakan ketikkan alamat email terlebih dahulu.');
+      return;
+    }
+    const newPass = loginPassword.trim() || '123456';
+    setIsSubmitting(true);
+    try {
+      const res = await resetPassword(loginEmail, newPass);
+      setIsSubmitting(false);
+      if (!res.success) {
+        setLoginError(res.message);
+      } else {
+        if (onSuccess) onSuccess();
+      }
+    } catch {
+      setIsSubmitting(false);
+      setLoginError('Terjadi kesalahan saat mereset kata sandi.');
     }
   };
 
@@ -143,6 +173,33 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onSuc
               </p>
             </div>
 
+            {/* Quick Fill Registered Accounts */}
+            <div className="p-2.5 rounded-2xl bg-[#0e111a] border border-[#1e2334] space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                  <Zap className="w-3 h-3 text-[#ffd700]" />
+                  <span>Akun Siap Pakai (1-Klik Isi):</span>
+                </span>
+                <span className="text-[10px] text-emerald-400 font-mono">Sandi: 123456</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleQuickFill('kamaliyahalim585@gmail.com')}
+                  className="px-2.5 py-1.5 rounded-lg bg-[#161c2c] hover:bg-amber-500/20 border border-slate-700 hover:border-amber-400/50 text-[11px] text-amber-300 font-medium transition-all cursor-pointer flex items-center gap-1"
+                >
+                  <span className="font-bold">kamaliyahalim585@gmail.com</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleQuickFill('khoirulanisss@gmail.com')}
+                  className="px-2.5 py-1.5 rounded-lg bg-[#161c2c] hover:bg-amber-500/20 border border-slate-700 hover:border-amber-400/50 text-[11px] text-slate-200 font-medium transition-all cursor-pointer"
+                >
+                  khoirulanisss@gmail.com
+                </button>
+              </div>
+            </div>
+
             <form onSubmit={handleLoginSubmit} className="space-y-3.5">
               <div>
                 <label className="block text-[11px] text-slate-300 font-semibold mb-1">
@@ -194,11 +251,24 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onSuc
                   <div className="text-xs text-rose-400 font-medium bg-rose-500/10 p-2.5 rounded-xl border border-rose-500/20">
                     {loginError}
                   </div>
+
+                  {loginError.toLowerCase().includes('sandi') && (
+                    <button
+                      type="button"
+                      onClick={handleResetPassword}
+                      className="w-full py-2 px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <KeyRound className="w-3.5 h-3.5 text-[#ffd700]" />
+                      <span>Atur Sandi Ini & Masuk Langsung</span>
+                    </button>
+                  )}
+
                   {loginError.toLowerCase().includes('tidak ditemukan') && (
                     <button
                       type="button"
                       onClick={() => {
                         setRegEmail(loginEmail.trim());
+                        setRegPassword(loginPassword.trim() || '123456');
                         setIsRegisterMode(true);
                         setLoginError('');
                       }}
@@ -214,25 +284,41 @@ export const AuthPage: React.FC<AuthPageProps> = ({ initialMode = 'login', onSuc
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 text-black font-extrabold text-xs shadow-lg shadow-amber-500/25 hover:opacity-95 active:scale-[0.99] transition-all flex items-center justify-center gap-2"
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 text-black font-extrabold text-xs shadow-lg shadow-amber-500/25 hover:opacity-95 active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <span>{isSubmitting ? 'Memverifikasi...' : 'Masuk ke Portofolio Emas'}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>
 
-            <div className="pt-2 text-center">
-              <span className="text-xs text-slate-400">Belum memiliki akun IndoGold? </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsRegisterMode(true);
-                  setLoginError('');
-                }}
-                className="text-xs font-bold text-[#ffd700] hover:underline"
-              >
-                Daftar Akun Baru Sekarang
-              </button>
+            <div className="pt-2 text-center space-y-2">
+              <div>
+                <span className="text-xs text-slate-400">Belum memiliki akun IndoGold? </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsRegisterMode(true);
+                    setLoginError('');
+                  }}
+                  className="text-xs font-bold text-[#ffd700] hover:underline cursor-pointer"
+                >
+                  Daftar Akun Baru Sekarang
+                </button>
+              </div>
+
+              <div className="pt-2 border-t border-[#1e2330]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const btn = document.getElementById('open-live-chat-fab');
+                    if (btn) btn.click();
+                  }}
+                  className="text-[11px] text-slate-400 hover:text-amber-300 flex items-center justify-center gap-1.5 mx-auto transition-colors cursor-pointer"
+                >
+                  <MessageSquare className="w-3.5 h-3.5 text-[#ffd700]" />
+                  <span>Butuh Bantuan? Buka <strong>Live Chat CS 24/7</strong></span>
+                </button>
+              </div>
             </div>
           </div>
         ) : (

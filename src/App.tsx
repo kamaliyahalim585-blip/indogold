@@ -93,8 +93,10 @@ const MainApp: React.FC = () => {
       <div className="min-h-screen bg-[#07090d] text-slate-100 flex flex-col items-center justify-center p-4">
         <Toast />
         <div className="w-full max-w-md bg-[#0b0e14] border border-[#1d2230] rounded-3xl p-3 sm:p-5 shadow-2xl space-y-4">
-          <AuthPage initialMode="register" />
+          <AuthPage initialMode="login" />
         </div>
+        {/* Customer Support Live Chat accessible for any visitor or unregistered user */}
+        <LiveChatWidget />
       </div>
     );
   }

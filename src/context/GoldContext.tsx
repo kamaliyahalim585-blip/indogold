@@ -86,7 +86,17 @@ interface GoldContextType {
   // Live Support Chat
   supportRooms: SupportRoom[];
   supportMessages: SupportMessage[];
-  sendSupportMessage: (pesan: string, targetUserId?: string) => Promise<{ success: boolean; message: string }>;
+  guestId: string;
+  guestName: string;
+  guestEmail: string;
+  setGuestDetails: (name: string, email: string) => void;
+  resetPassword: (email: string, sandiBaru: string) => Promise<{ success: boolean; message: string }>;
+  sendSupportMessage: (
+    pesan: string,
+    targetUserId?: string,
+    senderNameOverride?: string,
+    senderEmailOverride?: string
+  ) => Promise<{ success: boolean; message: string }>;
   markSupportChatAsRead: (targetUserId: string, readerRole: 'user' | 'admin') => Promise<void>;
   userUnreadCount: number;
   adminTotalUnreadCount: number;
@@ -150,29 +160,86 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   });
 
+  const [guestId] = useState<string>(() => {
+    try {
+      let gId = localStorage.getItem('indogold_guest_uid');
+      if (!gId) {
+        gId = 'tamu-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7);
+        localStorage.setItem('indogold_guest_uid', gId);
+      }
+      return gId;
+    } catch {
+      return 'tamu-' + Date.now();
+    }
+  });
+
+  const [guestName, setGuestName] = useState<string>(() => {
+    try {
+      return localStorage.getItem('indogold_guest_name') || 'Calon Nasabah';
+    } catch {
+      return 'Calon Nasabah';
+    }
+  });
+
+  const [guestEmail, setGuestEmail] = useState<string>(() => {
+    try {
+      return localStorage.getItem('indogold_guest_email') || '';
+    } catch {
+      return '';
+    }
+  });
+
+  const setGuestDetails = (name: string, email: string) => {
+    if (name.trim()) {
+      setGuestName(name.trim());
+      try { localStorage.setItem('indogold_guest_name', name.trim()); } catch {}
+    }
+    if (email.trim()) {
+      setGuestEmail(email.trim().toLowerCase());
+      try { localStorage.setItem('indogold_guest_email', email.trim().toLowerCase()); } catch {}
+    }
+  };
+
   const [isPriceFluctuating, setIsPriceFluctuating] = useState<boolean>(true);
   const [toast, setToast] = useState<Toast | null>(null);
 
-  // 1. Synchronize users from Firestore in real-time
+  // 1. Synchronize users from Firestore in real-time with smart merge
   useEffect(() => {
     const unsub = onSnapshot(
       collection(db, 'users'),
       (snapshot) => {
         if (snapshot.empty) {
-          // Initialize master admin in Firestore on first run
-          const masterAdmin = INITIAL_USERS[0];
-          setDoc(doc(db, 'users', masterAdmin.uid), masterAdmin).catch((err) =>
-            console.error('Error seeding admin to Firestore:', err)
-          );
-        } else {
-          const list: UserAccount[] = [];
-          snapshot.forEach((d) => {
-            list.push(d.data() as UserAccount);
+          // Initialize default users in Firestore on first run
+          INITIAL_USERS.forEach((u) => {
+            setDoc(doc(db, 'users', u.uid), u).catch((err) =>
+              console.error('Error seeding user to Firestore:', err)
+            );
           });
-          setAllUsers(list);
-          try {
-            localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(list));
-          } catch {}
+        } else {
+          const firestoreUsers: UserAccount[] = [];
+          snapshot.forEach((d) => {
+            firestoreUsers.push(d.data() as UserAccount);
+          });
+
+          // Smart merge: never drop local or initial users, but prioritize authoritative Firestore data
+          setAllUsers((prev) => {
+            const userMap = new Map<string, UserAccount>();
+
+            // 1. Seed with initial users
+            INITIAL_USERS.forEach((u) => userMap.set(u.email.toLowerCase().trim(), u));
+
+            // 2. Add existing cached users
+            prev.forEach((u) => userMap.set(u.email.toLowerCase().trim(), u));
+
+            // 3. Apply live Firestore users (authoritative)
+            firestoreUsers.forEach((u) => userMap.set(u.email.toLowerCase().trim(), u));
+
+            const merged = Array.from(userMap.values());
+            try {
+              localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
         }
       },
       (error) => {
@@ -423,20 +490,100 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     }
 
+    // Layer 4: Fallback to INITIAL_USERS
+    if (!user) {
+      const initUser = INITIAL_USERS.find((u) => u.email.trim().toLowerCase() === cleanEmail);
+      if (initUser) {
+        user = initUser;
+        setAllUsers((prev) => [...prev.filter((u) => u.uid !== initUser.uid), initUser]);
+        // Also ensure it is synced to Firestore
+        setDoc(doc(db, 'users', initUser.uid), initUser).catch(() => {});
+      }
+    }
+
     if (!user) {
       return {
         success: false,
-        message: 'Email tidak ditemukan di sistem. Pastikan penulisan email sudah benar atau silakan lakukan pendaftaran akun baru.'
+        message: 'Email tidak ditemukan di sistem. Pastikan penulisan email sudah benar atau silakan klik tombol Daftarkan Email Ini Sekarang.'
       };
     }
 
     if (user.sandi !== cleanSandi && user.sandi !== sandi) {
-      return { success: false, message: 'Kata sandi salah. Silakan periksa kembali kata sandi akun Anda.' };
+      return {
+        success: false,
+        message: 'Kata sandi salah. Silakan periksa kembali kata sandi akun Anda atau gunakan tombol Reset Sandi & Masuk.'
+      };
     }
 
     setCurrentUid(user.uid);
     showToast(`Selamat datang kembali, ${user.nama}!`, 'success');
     return { success: true, message: 'Berhasil masuk' };
+  };
+
+  // Auth: Reset Password & Auto Login
+  const resetPassword = async (email: string, sandiBaru: string): Promise<{ success: boolean; message: string }> => {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanSandi = sandiBaru.trim();
+
+    if (!cleanEmail) {
+      return { success: false, message: 'Alamat email wajib diisi' };
+    }
+    if (cleanSandi.length < 6) {
+      return { success: false, message: 'Kata sandi baru minimal 6 karakter' };
+    }
+
+    let targetUser = allUsers.find((u) => u.email.trim().toLowerCase() === cleanEmail);
+    if (!targetUser) {
+      targetUser = INITIAL_USERS.find((u) => u.email.trim().toLowerCase() === cleanEmail);
+    }
+
+    // Direct fetch if needed
+    if (!targetUser) {
+      try {
+        const snap = await getDocs(collection(db, 'users'));
+        snap.forEach((d) => {
+          const u = d.data() as UserAccount;
+          if (u.email.trim().toLowerCase() === cleanEmail) {
+            targetUser = u;
+          }
+        });
+      } catch {}
+    }
+
+    if (!targetUser) {
+      // If user doesn't exist, create it cleanly with the new password
+      return register(
+        cleanEmail.split('@')[0],
+        cleanEmail,
+        cleanSandi
+      );
+    }
+
+    const updatedUser: UserAccount = {
+      ...targetUser,
+      sandi: cleanSandi
+    };
+
+    try {
+      await updateDoc(doc(db, 'users', targetUser.uid), { sandi: cleanSandi });
+    } catch (e) {
+      console.warn('Firestore update password warning:', e);
+      try {
+        await setDoc(doc(db, 'users', targetUser.uid), updatedUser, { merge: true });
+      } catch {}
+    }
+
+    setAllUsers((prev) => {
+      const next = [...prev.filter((u) => u.uid !== updatedUser.uid), updatedUser];
+      try {
+        localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    setCurrentUid(updatedUser.uid);
+    showToast(`Kata sandi berhasil diperbarui. Selamat datang, ${updatedUser.nama}!`, 'success');
+    return { success: true, message: 'Kata sandi berhasil diatur ulang' };
   };
 
   // Auth: Register (Real starting balance = Rp 0, 0 gram gold)
@@ -1144,27 +1291,57 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // Support Live Chat Operations
   const sendSupportMessage = async (
     pesan: string,
-    targetUserId?: string
+    targetUserId?: string,
+    senderNameOverride?: string,
+    senderEmailOverride?: string
   ): Promise<{ success: boolean; message: string }> => {
     const cleanText = pesan.trim();
     if (!cleanText) {
       return { success: false, message: 'Pesan tidak boleh kosong' };
     }
 
-    if (!currentUser) {
-      return { success: false, message: 'Silakan login terlebih dahulu' };
+    const isSenderAdmin = currentUser ? (currentUser.isAdmin || currentUser.email === 'admin@indogold.com') : false;
+
+    // Room ID determination:
+    // 1. If admin is replying: targetUserId must be provided (the user or guest ID)
+    // 2. If logged in user: room ID is currentUser.uid
+    // 3. If guest visitor: room ID is guestId
+    let roomUserId = '';
+    let senderRole: 'user' | 'admin' = 'user';
+    let senderName = '';
+    let senderId = '';
+    let targetUserName = '';
+    let targetUserEmail = '';
+
+    if (isSenderAdmin) {
+      if (!targetUserId) {
+        return { success: false, message: 'Penerima pesan tidak valid' };
+      }
+      roomUserId = targetUserId;
+      senderRole = 'admin';
+      senderName = 'Tim CS IndoGold';
+      senderId = currentUser!.uid;
+
+      const targetCustomer = allUsers.find((u) => u.uid === roomUserId);
+      const existingRoom = supportRooms.find((r) => r.userId === roomUserId);
+      targetUserName = targetCustomer?.nama || existingRoom?.userName || 'Nasabah';
+      targetUserEmail = targetCustomer?.email || existingRoom?.userEmail || '';
+    } else if (currentUser) {
+      roomUserId = currentUser.uid;
+      senderRole = 'user';
+      senderName = currentUser.nama;
+      senderId = currentUser.uid;
+      targetUserName = currentUser.nama;
+      targetUserEmail = currentUser.email;
+    } else {
+      // Unauthenticated Guest Visitor
+      roomUserId = guestId;
+      senderRole = 'user';
+      senderName = senderNameOverride || guestName || 'Calon Nasabah';
+      senderId = guestId;
+      targetUserName = senderName;
+      targetUserEmail = senderEmailOverride || guestEmail || '';
     }
-
-    const isSenderAdmin = currentUser.isAdmin || currentUser.email === 'admin@indogold.com';
-    const roomUserId = isSenderAdmin ? (targetUserId || '') : currentUser.uid;
-
-    if (!roomUserId) {
-      return { success: false, message: 'Penerima pesan tidak valid' };
-    }
-
-    const targetCustomer = allUsers.find((u) => u.uid === roomUserId) || (roomUserId === currentUser.uid ? currentUser : null);
-    const targetUserName = targetCustomer?.nama || (isSenderAdmin ? 'Nasabah' : currentUser.nama);
-    const targetUserEmail = targetCustomer?.email || '';
 
     const now = new Date();
     const timeString = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
@@ -1174,9 +1351,9 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       id: messageId,
       userId: roomUserId,
       userName: targetUserName,
-      senderRole: isSenderAdmin ? 'admin' : 'user',
-      senderName: isSenderAdmin ? 'Tim CS IndoGold' : currentUser.nama,
-      senderId: currentUser.uid,
+      senderRole,
+      senderName,
+      senderId,
       pesan: cleanText,
       waktu: now.toISOString(),
       dibaca: false,
@@ -1191,9 +1368,9 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       userEmail: targetUserEmail,
       lastMessage: cleanText,
       lastMessageTime: timeString,
-      lastSenderRole: isSenderAdmin ? 'admin' : 'user',
-      unreadByAdmin: isSenderAdmin ? 0 : ((existingRoom?.unreadByAdmin || 0) + 1),
-      unreadByUser: isSenderAdmin ? ((existingRoom?.unreadByUser || 0) + 1) : 0,
+      lastSenderRole: senderRole,
+      unreadByAdmin: senderRole === 'admin' ? 0 : ((existingRoom?.unreadByAdmin || 0) + 1),
+      unreadByUser: senderRole === 'admin' ? ((existingRoom?.unreadByUser || 0) + 1) : 0,
       updatedAt: Date.now()
     };
 
@@ -1243,7 +1420,7 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const userUnreadCount = currentUser
     ? supportRooms.find((r) => r.userId === currentUser.uid)?.unreadByUser || 0
-    : 0;
+    : supportRooms.find((r) => r.userId === guestId)?.unreadByUser || 0;
 
   const adminTotalUnreadCount = supportRooms.reduce((acc, r) => acc + (r.unreadByAdmin || 0), 0);
 
@@ -1262,6 +1439,7 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         hideToast,
         login,
         register,
+        resetPassword,
         logout,
         switchUser,
         buyGold,
@@ -1283,6 +1461,10 @@ export const GoldProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         getBrandInfo,
         supportRooms,
         supportMessages,
+        guestId,
+        guestName,
+        guestEmail,
+        setGuestDetails,
         sendSupportMessage,
         markSupportChatAsRead,
         userUnreadCount,

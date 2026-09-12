@@ -110,6 +110,30 @@ export const INITIAL_USERS: UserAccount[] = [
     terakhirKeuntungan: '',
     daftarPada: new Date().toISOString(),
     isAdmin: true
+  },
+  {
+    uid: 'usr-khoirulanisss',
+    nama: 'Khoirul Anis',
+    email: 'khoirulanisss@gmail.com',
+    sandi: '123456',
+    saldo: 30000,
+    emas: [],
+    kodeRef: 'ANIS88',
+    terakhirKeuntungan: '',
+    daftarPada: new Date().toISOString(),
+    isAdmin: false
+  },
+  {
+    uid: 'usr-kamaliyahalim',
+    nama: 'Kamaliyah Halim',
+    email: 'kamaliyahalim585@gmail.com',
+    sandi: '123456',
+    saldo: 30000,
+    emas: [],
+    kodeRef: 'KAMAL88',
+    terakhirKeuntungan: '',
+    daftarPada: new Date().toISOString(),
+    isAdmin: false
   }
 ];
 
